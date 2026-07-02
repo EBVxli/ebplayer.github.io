@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EB PLAYER</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fflate/0.8.2/index.min.js" onerror="console.warn('zip lib unavailable')"></script>
+<style>
+:root{
+  --bg:#0b0b0e; --panel:#141419; --line:#26262e;
+  --red:#e0322e; --amber:#ffb347; --cyan:#7df9ff; --txt:#d8d8e0; --dim:#8a8a96;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+body{
+  background:var(--bg); color:var(--txt);
+  font-family:"Segoe UI", "Malgun Gothic", sans-serif;
+  min-height:100vh; display:flex; flex-direction:column; align-items:center;
+}
+header{
+  width:100%; padding:14px 22px; border-bottom:2px solid var(--red);
+  display:flex; align-items:baseline; gap:14px; background:#0e0e12;
+}
+header h1{
+  font-family:"Arial Black", sans-serif; font-size:20px; letter-spacing:3px;
+  color:#fff;
+}
+header h1 b{color:var(--red)}
+header span{color:var(--dim); font-size:12px; letter-spacing:1px}
+.hidden{display:none !important}
+
+/* ---- select screen ---- */
+#screen-select{width:min(880px,96vw); padding:26px 0 60px}
+#dropzone{
+  border:2px dashed var(--line); border-radius:6px; padding:44px 20px;
+  text-align:center; transition:border-color .15s, background .15s; background:var(--panel);
+}
+#dropzone.over{border-color:var(--red); background:#1b1216}
+#dropzone.compact{padding:16px}
+#dropzone p{color:var(--dim); font-size:14px; margin-bottom:14px}
+#dropzone .big{font-size:17px; color:var(--txt); margin-bottom:6px}
+.btnrow{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+.btn{
+  background:#1d1d24; border:1px solid var(--line); color:var(--txt);
+  padding:9px 18px; font-size:13px; cursor:pointer; border-radius:3px; letter-spacing:1px;
+}
+.btn:hover{border-color:var(--red); color:#fff}
+.btn:focus-visible{outline:2px solid var(--amber)}
+#loadStatus{margin:14px 2px; font-size:13px; color:var(--amber); min-height:18px; font-family:monospace}
+#chartList{display:flex; flex-direction:column; gap:6px; margin-top:8px}
+.chart-item{
+  display:grid; grid-template-columns:56px 1fr; grid-template-rows:auto auto;
+  gap:0 12px; text-align:left; background:var(--panel); border:1px solid var(--line);
+  padding:10px 14px; cursor:pointer; color:var(--txt); border-radius:3px;
+}
+.chart-item:hover{border-color:var(--red)}
+.chart-item:focus-visible{outline:2px solid var(--amber)}
+.chart-item .lv{grid-row:1/3; align-self:center; font-family:monospace; font-size:16px; color:var(--red); font-weight:bold}
+.chart-item .ttl{font-size:15px; font-weight:600}
+.chart-item .ttl em{color:var(--dim); font-style:normal; font-size:12px}
+.chart-item .sub{font-size:12px; color:var(--dim)}
+#playInfo{
+  margin-top:18px; background:var(--panel); border-left:4px solid var(--red);
+  padding:12px 16px;
+}
+#infoTitle{font-size:17px; font-weight:700}
+#infoDetail{font-size:12px; color:var(--dim); margin-top:3px}
+#playInfo .keys{margin-top:10px; font-size:12px; color:var(--dim); font-family:monospace; line-height:1.7}
+#playInfo kbd{
+  background:#22222a; border:1px solid #3a3a44; border-bottom-width:2px;
+  padding:1px 6px; border-radius:3px; color:#fff; font-size:11px;
+}
+
+/* ---- play screen ---- */
+#screen-play{display:flex; gap:18px; padding:22px 0 40px; align-items:flex-start}
+#field{background:#000; border:1px solid var(--line); display:block}
+#side{
+  width:230px; background:var(--panel); border:1px solid var(--line);
+  padding:14px; font-family:monospace; font-size:13px;
+}
+#side h2{font-size:14px; color:#fff; font-family:"Segoe UI",sans-serif; line-height:1.3; word-break:break-all}
+#side .artist{color:var(--dim); font-size:11px; margin-bottom:12px; font-family:"Segoe UI",sans-serif}
+.stat{display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dotted #26262e}
+.stat b{color:var(--cyan)}
+.stat.j b{color:var(--txt)}
+.stat .pg{color:var(--cyan)} .stat .gr{color:var(--amber)} .stat .gd{color:#3dda6b}
+.stat .bd{color:#c93ec9} .stat .pr{color:var(--red)}
+#side .hint{margin-top:12px; color:var(--dim); font-size:11px; line-height:1.6}
+
+/* ---- result ---- */
+#result{
+  position:fixed; inset:0; background:rgba(5,5,8,.86); display:flex;
+  align-items:center; justify-content:center; z-index:10;
+}
+#result .card{
+  background:var(--panel); border:1px solid var(--line); border-top:4px solid var(--red);
+  width:min(400px,92vw); padding:26px 30px; text-align:center;
+}
+#rClear{font-family:"Arial Black",sans-serif; letter-spacing:4px; font-size:22px}
+#rGrade{font-family:"Arial Black",sans-serif; font-size:64px; margin:6px 0 14px}
+.rrow{display:flex; justify-content:space-between; font-family:monospace; font-size:14px; padding:4px 0; border-bottom:1px dotted #2c2c34}
+#result .esc{margin-top:16px; color:var(--dim); font-size:12px}
+
+.chart-item .ttl .mode{
+  font-style:normal; font-size:10px; color:#fff; background:#33333e;
+  border:1px solid #4a4a56; padding:1px 6px; border-radius:2px; letter-spacing:1px;
+  vertical-align:1px; margin-right:4px;
+}
+.keybind.inactive{opacity:.35}
+/* ---- key config & offset ---- */
+#configRow{display:flex; gap:14px; margin-top:18px; flex-wrap:wrap}
+.cfg{background:var(--panel); border:1px solid var(--line); padding:12px 14px; flex:1; min-width:280px}
+.cfg h3{font-size:12px; color:var(--dim); letter-spacing:2px; margin-bottom:10px}
+#keyConfig{display:grid; grid-template-columns:repeat(8,1fr); gap:5px}
+.keybind{
+  background:#1d1d24; border:1px solid var(--line); color:var(--txt);
+  padding:7px 2px; cursor:pointer; border-radius:3px; display:flex; flex-direction:column; gap:3px; align-items:center;
+}
+.keybind span{font-size:10px; color:var(--dim)}
+.keybind b{font-size:12px; color:#fff; min-height:14px}
+.keybind:hover{border-color:var(--red)}
+.keybind.waiting{border-color:var(--amber); background:#2a2312}
+.keybind.waiting b{color:var(--amber)}
+.keybind:focus-visible{outline:2px solid var(--amber)}
+.offctl{display:flex; align-items:center; gap:8px}
+.offctl input{
+  width:76px; background:#0e0e12; border:1px solid var(--line); color:var(--cyan);
+  font-family:monospace; font-size:14px; padding:6px 8px; text-align:right; border-radius:3px;
+}
+.offctl .btn{padding:6px 12px}
+.offctl small{color:var(--dim); font-size:11px}
+#bga{background:#000; border:1px solid var(--line); display:block; width:100%}
+#playcol{display:flex; flex-direction:column; gap:14px; width:280px}
+
+@media (prefers-reduced-motion: reduce){ *{transition:none !important} }
+</style>
+</head>
+<body>
+<header><h1>EB <b>PLAYER</b></h1></header>
+
+<section id="screen-select">
+  <div id="dropzone">
+    <p class="big">BMS 폴더를 여기에 드래그하세요</p>
+    <p>.bms / .bme / .bml 채보와 키음(wav·ogg·mp3)이 함께 있는 폴더 또는 ZIP</p>
+    <div class="btnrow">
+      <button class="btn" onclick="document.getElementById('folderInput').click()">폴더 선택</button>
+      <button class="btn" onclick="document.getElementById('fileInput').click()">파일/ZIP 선택</button>
+    </div>
+    <input type="file" id="folderInput" webkitdirectory multiple class="hidden">
+    <input type="file" id="fileInput" multiple accept=".bms,.bme,.bml,.pms,.zip,audio/*" class="hidden">
+  </div>
+  <div id="loadStatus"></div>
+  <div id="chartList"></div>
+
+  <div id="configRow">
+    <div class="cfg">
+      <h3>KEY CONFIG</h3>
+      <div id="keyConfig"></div>
+    </div>
+    <div class="cfg">
+      <h3>JUDGE OFFSET</h3>
+      <div class="offctl">
+        <button class="btn" id="offMinus">−5</button>
+        <input type="number" id="offsetInput" value="0" step="5" min="-300" max="300"> ms
+        <button class="btn" id="offPlus">+5</button>
+      </div>
+      <div class="offctl" style="margin-top:8px"><small>+는 노트를 늦게 판정(노트가 빠르게 느껴질 때) · 플레이 중 [ ] 키로 ±5ms</small></div>
+    </div>
+  </div>
+  <div id="playInfo" class="hidden">
+    <div id="infoTitle"></div>
+    <div id="infoDetail"></div>
+    <div class="keys">
+      <kbd>Enter</kbd> 플레이 &nbsp; <kbd>A</kbd> 오토플레이 &nbsp; <kbd>Esc</kbd> 선곡으로<br>
+      <kbd>Shift</kbd> 스크래치 &nbsp; <kbd>Z</kbd><kbd>S</kbd><kbd>X</kbd><kbd>D</kbd><kbd>C</kbd><kbd>F</kbd><kbd>V</kbd> 1–7번 키 &nbsp; <kbd>↑</kbd><kbd>↓</kbd> 하이스피드
+    </div>
+  </div>
+</section>
+
+<section id="screen-play" class="hidden">
+  <canvas id="field" width="340" height="640"></canvas>
+  <div id="playcol">
+  <canvas id="bga" width="512" height="512"></canvas>
+  <aside id="side" style="width:100%">
+    <h2 id="sTitle"></h2>
+    <div class="artist" id="sArtist"></div>
+    <div class="stat"><span>BPM</span><b id="sBpm">-</b></div>
+    <div class="stat"><span>HI-SPEED</span><b id="hsVal">2.00</b></div>
+    <div class="stat"><span>EX SCORE</span><b id="sEx">0</b></div>
+    <div class="stat"><span>MAX COMBO</span><b id="sMax">0</b></div>
+    <div class="stat j"><span>PGREAT</span><b class="pg" id="sPg">0</b></div>
+    <div class="stat j"><span>GREAT</span><b class="gr" id="sGr">0</b></div>
+    <div class="stat j"><span>GOOD</span><b class="gd" id="sGd">0</b></div>
+    <div class="stat j"><span>BAD</span><b class="bd" id="sBd">0</b></div>
+    <div class="stat j"><span>POOR</span><b class="pr" id="sPr">0</b></div>
+    <div class="stat"><span>FAST</span><b id="sFast">0</b></div>
+    <div class="stat"><span>SLOW</span><b id="sSlow">0</b></div>
+    <div class="stat"><span>OFFSET</span><b id="sOff">+0ms</b></div>
+    <div class="hint">Esc: 선곡 화면 / ↑↓: 하이스피드 / [ ]: 오프셋<br>게이지 80% 이상으로 완주하면 CLEAR</div>
+  </aside>
+  </div>
+</section>
+
+<div id="result" class="hidden">
+  <div class="card">
+    <div id="rClear">CLEAR</div>
+    <div id="rGrade">AAA</div>
+    <div id="rBody"></div>
+    <div class="esc">Esc 키로 선곡 화면으로 돌아갑니다</div>
+  </div>
+</div>
+
+<script>
+/* ================= BMS Player Engine — LR2 style ================= */
+'use strict';
+
+/* ---------- Utilities ---------- */
+const $ = (s) => document.querySelector(s);
+const b36 = (s) => parseInt(s, 36);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const pad = (n, w) => String(n).padStart(w, '0');
+
+function decodeBuffer(buf) {
+  // Try UTF-8 (strict) -> Shift_JIS -> EUC-KR
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) {}
+  try { return new TextDecoder('shift_jis').decode(buf); } catch (e) {}
+  try { return new TextDecoder('euc-kr').decode(buf); } catch (e) {}
+  return new TextDecoder('utf-8').decode(buf);
+}
+
+/* ---------- BMS Parser ---------- */
+// Channel map (1P side, BME 7K+SC)
+const KEY_CH = { '11': 0, '12': 1, '13': 2, '14': 3, '15': 4, '18': 5, '19': 6, '16': 7 }; // 7 = scratch
+const LN_CH  = { '51': 0, '52': 1, '53': 2, '54': 3, '55': 4, '58': 5, '59': 6, '56': 7 };
+
+function parseBMS(text) {
+  const chart = {
+    title: '', subtitle: '', artist: '', genre: '',
+    bpm: 130, playlevel: 0, rank: 2, total: 0, lnobj: 0,
+    wavs: {},            // id -> filename
+    bmps: {},            // id -> filename (BGA)
+    bpmDefs: {},         // id -> bpm (exBPM)
+    stopDefs: {},        // id -> value (1/192 whole notes)
+    measureLen: {},      // measure -> scale (1 = 4/4)
+    objs: [],            // {measure, frac, channel, value}
+    maxMeasure: 0,
+  };
+
+  // #RANDOM / #IF (single-level, nested #RANDOM treated flat)
+  const randStack = [];
+  let skipping = false;
+  const evalSkip = () => { skipping = randStack.some(f => f.active && !f.match); };
+
+  const lines = text.split(/\r\n|\r|\n/);
+  for (let raw of lines) {
+    const line = raw.trim();
+    if (!line.startsWith('#')) continue;
+    const upper = line.toUpperCase();
+
+    if (upper.startsWith('#RANDOM')) {
+      const n = parseInt(line.slice(7).trim(), 10) || 1;
+      randStack.push({ active: false, match: true, value: 1 + Math.floor(Math.random() * n) });
+      continue;
+    }
+    if (upper.startsWith('#IF')) {
+      const k = parseInt(line.slice(3).trim(), 10);
+      const f = randStack[randStack.length - 1];
+      if (f) { f.active = true; f.match = (f.value === k); evalSkip(); }
+      continue;
+    }
+    if (upper.startsWith('#ENDIF')) {
+      const f = randStack[randStack.length - 1];
+      if (f) { f.active = false; f.match = true; evalSkip(); }
+      continue;
+    }
+    if (upper.startsWith('#ENDRANDOM')) { randStack.pop(); evalSkip(); continue; }
+    if (skipping) continue;
+
+    // Channel data: #nnnCC:....
+    const m = line.match(/^#(\d{3})([0-9A-Za-z]{2}):(.*)$/);
+    if (m) {
+      const measure = parseInt(m[1], 10);
+      const ch = m[2].toUpperCase();
+      const data = m[3].trim();
+      chart.maxMeasure = Math.max(chart.maxMeasure, measure);
+      if (ch === '02') {
+        chart.measureLen[measure] = parseFloat(data) || 1;
+        continue;
+      }
+      const pairs = Math.floor(data.length / 2);
+      for (let i = 0; i < pairs; i++) {
+        const token = data.substr(i * 2, 2);
+        if (token === '00') continue;
+        chart.objs.push({ measure, frac: i / pairs, channel: ch, value: token });
+      }
+      continue;
+    }
+
+    // Headers
+    const hm = line.match(/^#(\S+)\s*(.*)$/);
+    if (!hm) continue;
+    const key = hm[1].toUpperCase();
+    const val = hm[2].trim();
+
+    if (key.startsWith('WAV'))  { chart.wavs[b36(key.slice(3))] = val; continue; }
+    if (key.startsWith('BMP'))  { chart.bmps[b36(key.slice(3))] = val; continue; }
+    if (key.startsWith('BPM') && key.length === 5) { chart.bpmDefs[b36(key.slice(3))] = parseFloat(val); continue; }
+    if (key.startsWith('STOP')) { chart.stopDefs[b36(key.slice(4))] = parseFloat(val); continue; }
+
+    switch (key) {
+      case 'TITLE': chart.title = val; break;
+      case 'SUBTITLE': chart.subtitle = val; break;
+      case 'ARTIST': chart.artist = val; break;
+      case 'GENRE': chart.genre = val; break;
+      case 'BPM': chart.bpm = parseFloat(val) || 130; break;
+      case 'PLAYLEVEL': chart.playlevel = parseInt(val, 10) || 0; break;
+      case 'RANK': chart.rank = parseInt(val, 10); break;
+      case 'TOTAL': chart.total = parseFloat(val) || 0; break;
+      case 'LNOBJ': chart.lnobj = b36(val); break;
+    }
+  }
+  return chart;
+}
+
+/* ---------- Key mode detection ---------- */
+// 실제 사용된 키 레인 목록으로 판정 (예: 2~5번 키만 쓰면 4K)
+function detectMode(chart) {
+  const used = new Set();
+  for (const o of chart.objs) {
+    if (o.channel in KEY_CH) used.add(KEY_CH[o.channel]);
+    else if (o.channel in LN_CH) used.add(LN_CH[o.channel]);
+  }
+  const lanes = [0, 1, 2, 3, 4, 5, 6].filter(l => used.has(l));
+  const hasScratch = used.has(7);
+  if (!lanes.length && !hasScratch) {
+    return { lanes: [0, 1, 2, 3, 4, 5, 6], hasScratch: true, label: '7K+SC' };
+  }
+  return { lanes, hasScratch, label: lanes.length + 'K' + (hasScratch ? '+SC' : '') };
+}
+
+/* ---------- Timing: beat <-> time with BPM changes & STOPs ---------- */
+function buildTiming(chart) {
+  // cumulative beats at start of each measure
+  const cum = [0];
+  for (let i = 0; i <= chart.maxMeasure + 1; i++) {
+    const len = chart.measureLen[i] !== undefined ? chart.measureLen[i] : 1;
+    cum[i + 1] = cum[i] + 4 * len;
+  }
+  const beatOf = (measure, frac) => {
+    const len = chart.measureLen[measure] !== undefined ? chart.measureLen[measure] : 1;
+    return cum[measure] + 4 * len * frac;
+  };
+
+  // Collect tempo events
+  const events = []; // {beat, type:'bpm'|'stop', value}
+  for (const o of chart.objs) {
+    if (o.channel === '03') {
+      const v = parseInt(o.value, 16);
+      if (v > 0) events.push({ beat: beatOf(o.measure, o.frac), type: 'bpm', value: v });
+    } else if (o.channel === '08') {
+      const v = chart.bpmDefs[b36(o.value)];
+      if (v) events.push({ beat: beatOf(o.measure, o.frac), type: 'bpm', value: v });
+    } else if (o.channel === '09') {
+      const v = chart.stopDefs[b36(o.value)];
+      if (v) events.push({ beat: beatOf(o.measure, o.frac), type: 'stop', value: v });
+    }
+  }
+  events.sort((a, b) => a.beat - b.beat || (a.type === 'bpm' ? -1 : 1));
+
+  // Build segments: {t0, beat0, bpm, frozen(bool), t1}
+  const segs = [];
+  let t = 0, beat = 0, bpm = chart.bpm;
+  for (const ev of events) {
+    if (ev.beat > beat) {
+      const dt = (ev.beat - beat) * 60 / bpm;
+      segs.push({ t0: t, t1: t + dt, beat0: beat, bpm, frozen: false });
+      t += dt; beat = ev.beat;
+    }
+    if (ev.type === 'bpm') {
+      bpm = ev.value;
+    } else {
+      const dur = (ev.value / 192) * (240 / bpm); // value: 1/192 of whole note
+      segs.push({ t0: t, t1: t + dur, beat0: beat, bpm, frozen: true });
+      t += dur;
+    }
+  }
+  segs.push({ t0: t, t1: Infinity, beat0: beat, bpm, frozen: false });
+
+  const beatToTime = (b) => {
+    for (const s of segs) {
+      if (s.frozen) continue;
+      const endBeat = s.t1 === Infinity ? Infinity : s.beat0 + (s.t1 - s.t0) * s.bpm / 60;
+      if (b <= endBeat + 1e-9) return s.t0 + (b - s.beat0) * 60 / s.bpm;
+    }
+    return t;
+  };
+  const timeToBeat = (tt) => {
+    for (const s of segs) {
+      if (tt <= s.t1) return s.frozen ? s.beat0 : s.beat0 + (tt - s.t0) * s.bpm / 60;
+    }
+    return beat;
+  };
+  const bpmAt = (tt) => {
+    for (const s of segs) if (tt <= s.t1) return s.bpm;
+    return bpm;
+  };
+  return { beatOf, beatToTime, timeToBeat, bpmAt, cum };
+}
+
+/* ---------- Note compilation ---------- */
+function compileNotes(chart, timing) {
+  const notes = [];  // playable {lane, beat, time, wav, ln, endBeat, endTime}
+  const bgms  = [];  // {time, wav}
+  const bga   = { base: [], layer: [], poor: [] }; // {time, id}
+  const lnPending = {}; // lane -> note (for 5x channels)
+
+  const sorted = chart.objs.slice().sort((a, b) =>
+    timing.beatOf(a.measure, a.frac) - timing.beatOf(b.measure, b.frac));
+
+  const laneNotes = Array.from({ length: 8 }, () => []);
+
+  for (const o of sorted) {
+    const beat = timing.beatOf(o.measure, o.frac);
+    const time = timing.beatToTime(beat);
+    const wav = b36(o.value);
+
+    if (o.channel === '01') { bgms.push({ time, wav }); continue; }
+    if (o.channel === '04') { bga.base.push({ time, id: wav }); continue; }
+    if (o.channel === '07') { bga.layer.push({ time, id: wav }); continue; }
+    if (o.channel === '06') { bga.poor.push({ time, id: wav }); continue; }
+
+    if (o.channel in KEY_CH) {
+      const lane = KEY_CH[o.channel];
+      // #LNOBJ: this object terminates previous note as LN
+      if (chart.lnobj && wav === chart.lnobj) {
+        const arr = laneNotes[lane];
+        const prev = arr[arr.length - 1];
+        if (prev && !prev.ln) { prev.ln = true; prev.endBeat = beat; prev.endTime = time; }
+        continue;
+      }
+      const n = { lane, beat, time, wav, ln: false, endBeat: beat, endTime: time };
+      laneNotes[lane].push(n);
+      notes.push(n);
+      continue;
+    }
+
+    if (o.channel in LN_CH) {
+      const lane = LN_CH[o.channel];
+      if (lnPending[lane]) {
+        const n = lnPending[lane];
+        n.endBeat = beat; n.endTime = time;
+        delete lnPending[lane];
+      } else {
+        const n = { lane, beat, time, wav, ln: true, endBeat: beat, endTime: time };
+        lnPending[lane] = n;
+        laneNotes[lane].push(n);
+        notes.push(n);
+      }
+    }
+  }
+  notes.sort((a, b) => a.time - b.time);
+  bgms.sort((a, b) => a.time - b.time);
+  for (const k of Object.keys(bga)) bga[k].sort((a, b) => a.time - b.time);
+  return { notes, bgms, bga };
+}
+
+/* ---------- Audio ---------- */
+const AudioEngine = {
+  ctx: null,
+  buffers: {},       // wavId -> AudioBuffer
+  init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
+  play(wavId, when = 0) {
+    const buf = this.buffers[wavId];
+    if (!buf || !this.ctx) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.ctx.destination);
+    src.start(when > 0 ? when : 0);
+    return src;
+  },
+};
+
+/* ---------- File loading ---------- */
+const CHART_EXT = ['bms', 'bme', 'bml', 'pms'];
+const SOUND_EXT = ['wav', 'ogg', 'mp3', 'flac', 'm4a'];
+const IMAGE_EXT = ['bmp', 'png', 'jpg', 'jpeg', 'gif', 'webp'];
+const VIDEO_EXT = ['mp4', 'webm', 'mpg', 'mpeg', 'avi', 'wmv', 'm1v', 'm2v'];
+
+const Loader = {
+  sounds: {},   // lowercase basename (no ext) -> File|Blob
+  visuals: {},  // lowercase basename (no ext) -> {file, ext}
+  charts: [],   // {name, text}
+
+  reset() { this.sounds = {}; this.visuals = {}; this.charts = []; },
+
+  baseKey(name) {
+    const base = name.split('/').pop().split('\\').pop();
+    const dot = base.lastIndexOf('.');
+    return (dot > 0 ? base.slice(0, dot) : base).toLowerCase();
+  },
+  ext(name) {
+    const dot = name.lastIndexOf('.');
+    return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+  },
+
+  async addFiles(fileList) {
+    for (const f of fileList) {
+      const e = this.ext(f.name);
+      if (CHART_EXT.includes(e)) {
+        const buf = await f.arrayBuffer();
+        this.charts.push({ name: f.name, text: decodeBuffer(buf) });
+      } else if (SOUND_EXT.includes(e)) {
+        this.sounds[this.baseKey(f.name)] = f;
+      } else if (IMAGE_EXT.includes(e) || VIDEO_EXT.includes(e)) {
+        this.visuals[this.baseKey(f.name)] = { file: f, ext: e };
+      } else if (e === 'zip') {
+        await this.addZip(f);
+      }
+    }
+    this.charts.sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  async addZip(file) {
+    if (typeof fflate === 'undefined') {
+      throw new Error('ZIP 라이브러리를 불러오지 못했습니다. 폴더 선택을 사용해 주세요.');
+    }
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const entries = fflate.unzipSync(buf);
+    for (const [name, data] of Object.entries(entries)) {
+      const e = this.ext(name);
+      if (CHART_EXT.includes(e)) {
+        this.charts.push({ name, text: decodeBuffer(data.buffer) });
+      } else if (SOUND_EXT.includes(e)) {
+        this.sounds[this.baseKey(name)] = new Blob([data]);
+      } else if (IMAGE_EXT.includes(e) || VIDEO_EXT.includes(e)) {
+        this.visuals[this.baseKey(name)] = { file: new Blob([data]), ext: e };
+      }
+    }
+  },
+
+  // Decode all keysounds referenced by chart
+  async decodeKeysounds(chart, onProgress) {
+    AudioEngine.init();
+    AudioEngine.buffers = {};
+    const ids = Object.keys(chart.wavs);
+    let done = 0, found = 0;
+    for (const id of ids) {
+      const key = this.baseKey(chart.wavs[id]); // extension-agnostic match
+      const f = this.sounds[key];
+      if (f) {
+        try {
+          const buf = await (f.arrayBuffer ? f.arrayBuffer() : new Response(f).arrayBuffer());
+          AudioEngine.buffers[id] = await AudioEngine.ctx.decodeAudioData(buf);
+          found++;
+        } catch (e) { /* undecodable file — skip */ }
+      }
+      done++;
+      if (onProgress && (done % 8 === 0 || done === ids.length)) onProgress(done, ids.length, found);
+    }
+    return { total: ids.length, found };
+  },
+
+  // Load BGA resources referenced by chart. layerIds: ids used on layer channel (07)
+  async loadBGA(chart, layerIds, onProgress) {
+    const out = {}; // id -> {type:'image'|'video', el|img}
+    const ids = Object.keys(chart.bmps);
+    let done = 0, found = 0;
+    for (const id of ids) {
+      const key = this.baseKey(chart.bmps[id]);
+      const v = this.visuals[key];
+      if (v) {
+        try {
+          if (VIDEO_EXT.includes(v.ext)) {
+            const el = document.createElement('video');
+            el.muted = true; el.playsInline = true; el.preload = 'auto';
+            el.src = URL.createObjectURL(v.file);
+            await new Promise((res) => {
+              el.onloadeddata = res;
+              el.onerror = res; // 미지원 코덱(mpg/avi/wmv 등)은 건너뜀
+              setTimeout(res, 4000);
+            });
+            if (el.readyState >= 2) { out[id] = { type: 'video', el }; found++; }
+          } else {
+            let bmp = await createImageBitmap(v.file);
+            if (layerIds.has(Number(id))) bmp = chromaKeyBlack(bmp); // 레이어는 검정=투명
+            out[id] = { type: 'image', img: bmp };
+            found++;
+          }
+        } catch (e) { /* skip undecodable */ }
+      }
+      done++;
+      if (onProgress && (done % 4 === 0 || done === ids.length)) onProgress(done, ids.length, found);
+    }
+    return { resources: out, total: ids.length, found };
+  },
+};
+
+function chromaKeyBlack(bmp) {
+  const cv = document.createElement('canvas');
+  cv.width = bmp.width; cv.height = bmp.height;
+  const cx = cv.getContext('2d', { willReadFrequently: true });
+  cx.drawImage(bmp, 0, 0);
+  const im = cx.getImageData(0, 0, cv.width, cv.height);
+  const d = im.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] < 8 && d[i + 1] < 8 && d[i + 2] < 8) d[i + 3] = 0;
+  }
+  cx.putImageData(im, 0, 0);
+  return cv;
+}
+
+/* ---------- Game state ---------- */
+const JUDGE = { PG: 21, GR: 60, GD: 120, BD: 200, EPOOR: 280 }; // ms windows (LR2 EASY-ish)
+const JUDGE_NAMES = ['PGREAT', 'GREAT', 'GOOD', 'BAD', 'POOR'];
+const JUDGE_COLORS = ['#7df9ff', '#ffd257', '#3dda6b', '#c93ec9', '#e0322e'];
+
+const Game = {
+  chart: null, timing: null, notes: [], bgms: [],
+  startAudioTime: 0, playing: false, autoplay: false, paused: false,
+  hispeed: 2.0,
+  laneState: Array(8).fill(false),   // key held
+  holdNote: Array(8).fill(null),     // active LN per lane
+  nextBgm: 0,
+  counts: { PG: 0, GR: 0, GD: 0, BD: 0, PR: 0 },
+  combo: 0, maxCombo: 0, ex: 0, totalNotes: 0,
+  gauge: 20, gaugeUp: 1, fastSlow: { fast: 0, slow: 0 },
+  lastJudge: -1, lastJudgeTime: -1, lastDelta: 0,
+  bombs: Array(8).fill(0),           // bomb effect timestamps
+  finished: false, endTime: 0,
+  offset: 0,                         // judge/visual offset (seconds). +면 노트를 늦게 판정
+  bga: null, bgaRes: {},             // events / decoded resources
+  bgaPtr: { base: 0, layer: 0, poor: 0 },
+  bgaCur: { base: null, layer: null, poorId: null, poorUntil: 0 },
+
+  now() { return AudioEngine.ctx.currentTime - this.startAudioTime; },
+  gameTime() { return this.now() - this.offset; },
+
+  start(chart, timing, compiled, autoplay) {
+    this.chart = chart; this.timing = timing;
+    this.notes = compiled.notes.map(n => ({ ...n, state: 0 })); // 0 idle, 1 hit, 2 miss, 3 holding
+    this.bgms = compiled.bgms;
+    this.bga = compiled.bga || { base: [], layer: [], poor: [] };
+    this.bgaPtr = { base: 0, layer: 0, poor: 0 };
+    this.bgaCur = { base: null, layer: null, poorId: null, poorUntil: 0 };
+    for (const id of Object.keys(this.bgaRes)) {
+      const r = this.bgaRes[id];
+      if (r.type === 'video') { try { r.el.pause(); r.el.currentTime = 0; } catch (e) {} }
+    }
+    this.autoplay = autoplay;
+    this.nextBgm = 0;
+    this.counts = { PG: 0, GR: 0, GD: 0, BD: 0, PR: 0 };
+    this.combo = 0; this.maxCombo = 0; this.ex = 0;
+    this.fastSlow = { fast: 0, slow: 0 };
+    this.totalNotes = this.notes.length;
+    this.gauge = 20;
+    const total = chart.total > 0 ? chart.total : Math.max(130, 7.605 * this.totalNotes / (0.01 * this.totalNotes + 6.5));
+    this.gaugeUp = total / Math.max(1, this.totalNotes);
+    this.lastJudge = -1; this.finished = false;
+    this.holdNote = Array(8).fill(null);
+    this.laneState = Array(8).fill(false);
+    this.bombs = Array(8).fill(0);
+    this.lastJudgeTime = -1;
+    const last = this.notes.reduce((m, n) => Math.max(m, n.endTime), 0);
+    const lastBgm = this.bgms.length ? this.bgms[this.bgms.length - 1].time : 0;
+    this.endTime = Math.max(last, lastBgm) + 2.0;
+    this.startAudioTime = AudioEngine.ctx.currentTime + 1.2; // 1.2s lead-in
+    this.playing = true;
+  },
+
+  addJudge(j, delta) { // j: 0..4
+    const key = ['PG', 'GR', 'GD', 'BD', 'PR'][j];
+    this.counts[key]++;
+    if (j <= 2) { this.combo++; this.maxCombo = Math.max(this.maxCombo, this.combo); }
+    else this.combo = 0;
+    if (j === 0) this.ex += 2; else if (j === 1) this.ex += 1;
+    // groove gauge
+    if (j === 0 || j === 1) this.gauge += this.gaugeUp;
+    else if (j === 2) this.gauge += this.gaugeUp / 2;
+    else if (j === 3) this.gauge -= 2;
+    else this.gauge -= 6;
+    this.gauge = clamp(this.gauge, 2, 100);
+    this.lastJudge = j; this.lastJudgeTime = this.now(); this.lastDelta = delta;
+    if (j >= 3 && this.bgaCur.poorId !== null) this.bgaCur.poorUntil = this.now() + 0.6;
+    if (j <= 1 && delta !== 0) {
+      if (delta < 0) this.fastSlow.fast++; else this.fastSlow.slow++;
+    }
+  },
+
+  keyDown(lane) {
+    if (!this.playing || this.autoplay) return;
+    const t = this.gameTime() * 1000;
+    // nearest idle note in lane
+    let best = null, bestAbs = Infinity;
+    for (const n of this.notes) {
+      if (n.lane !== lane || n.state !== 0) continue;
+      const d = t - n.time * 1000;
+      if (d > JUDGE.EPOOR) continue;
+      if (d < -JUDGE.EPOOR) break;
+      const a = Math.abs(d);
+      if (a < bestAbs) { bestAbs = a; best = n; }
+    }
+    if (!best) {
+      // play nearest keysound anyway (BMS behavior)
+      const near = this.nearestNote(lane, t);
+      if (near) AudioEngine.play(near.wav);
+      return;
+    }
+    const d = t - best.time * 1000;
+    AudioEngine.play(best.wav);
+    const a = Math.abs(d);
+    let j;
+    if (a <= JUDGE.PG) j = 0;
+    else if (a <= JUDGE.GR) j = 1;
+    else if (a <= JUDGE.GD) j = 2;
+    else if (a <= JUDGE.BD) j = 3;
+    else { this.addJudge(4, d); return; } // empty poor (note stays)
+    if (best.ln) { best.state = 3; this.holdNote[lane] = best; }
+    else best.state = 1;
+    this.addJudge(j, d);
+    if (j <= 1) this.bombs[lane] = this.now();
+  },
+
+  keyUp(lane) {
+    if (!this.playing || this.autoplay) return;
+    const n = this.holdNote[lane];
+    if (!n) return;
+    const t = this.gameTime() * 1000;
+    if (t < n.endTime * 1000 - JUDGE.GD) {
+      n.state = 2; // dropped
+      this.addJudge(4, 0);
+    } else {
+      n.state = 1;
+    }
+    this.holdNote[lane] = null;
+  },
+
+  nearestNote(lane, tms) {
+    let best = null, bestAbs = Infinity;
+    for (const n of this.notes) {
+      if (n.lane !== lane) continue;
+      const a = Math.abs(tms - n.time * 1000);
+      if (a < bestAbs) { bestAbs = a; best = n; }
+    }
+    return best;
+  },
+
+  update() {
+    if (!this.playing || this.paused) return;
+    const ta = this.now();            // 오디오 기준 시간 (BGM/BGA)
+    const t = this.gameTime();        // 판정·표시 기준 시간
+    const tms = t * 1000;
+
+    // BGM scheduling (slightly ahead)
+    while (this.nextBgm < this.bgms.length && this.bgms[this.nextBgm].time <= ta + 0.15) {
+      const b = this.bgms[this.nextBgm++];
+      AudioEngine.play(b.wav, this.startAudioTime + b.time);
+    }
+
+    // BGA events
+    if (this.bga) {
+      while (this.bgaPtr.base < this.bga.base.length && this.bga.base[this.bgaPtr.base].time <= ta) {
+        const ev = this.bga.base[this.bgaPtr.base++];
+        this.bgaCur.base = ev.id;
+        const r = this.bgaRes[ev.id];
+        if (r && r.type === 'video') { try { r.el.currentTime = 0; r.el.play(); } catch (e) {} }
+      }
+      while (this.bgaPtr.layer < this.bga.layer.length && this.bga.layer[this.bgaPtr.layer].time <= ta) {
+        this.bgaCur.layer = this.bga.layer[this.bgaPtr.layer++].id;
+      }
+      while (this.bgaPtr.poor < this.bga.poor.length && this.bga.poor[this.bgaPtr.poor].time <= ta) {
+        this.bgaCur.poorId = this.bga.poor[this.bgaPtr.poor++].id;
+      }
+    }
+
+    for (const n of this.notes) {
+      if (n.time * 1000 > tms + 400) break;
+      if (this.autoplay) {
+        if (n.state === 0 && n.time <= t) {
+          AudioEngine.play(n.wav);
+          n.state = n.ln ? 3 : 1;
+          this.addJudge(0, 0);
+          this.bombs[n.lane] = this.now();
+          this.laneState[n.lane] = true;
+          setTimeout(() => { if (!Game.notes.some(x => x.state === 3 && x.lane === n.lane)) Game.laneState[n.lane] = false; }, 80);
+        }
+        if (n.state === 3 && n.endTime <= t) { n.state = 1; this.laneState[n.lane] = false; }
+      } else {
+        if (n.state === 0 && tms - n.time * 1000 > JUDGE.BD) {
+          n.state = 2;
+          this.addJudge(4, 0);
+        }
+        if (n.state === 3 && t >= n.endTime) {
+          n.state = 1;
+          this.holdNote[n.lane] = null;
+          this.bombs[n.lane] = this.now();
+        }
+      }
+    }
+
+    if (t > this.endTime && !this.finished) {
+      this.finished = true;
+      this.playing = false;
+      UI.showResult();
+    }
+  },
+};
+
+/* ---------- Rendering (LR2-style field) ---------- */
+const Field = {
+  canvas: null, ctx: null,
+  laneW: [], laneX: [], fieldW: 0, judgeY: 0, topY: 60,
+  visualLane: [],      // visual index -> lane number
+  laneToVisual: {},    // lane number -> visual index
+  keyLabels: [],
+
+  init(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.judgeY = canvas.height - 110;
+    this.setLayout([0, 1, 2, 3, 4, 5, 6], true);
+  },
+
+  // lanes: 사용하는 키 레인 배열(0~6), hasScratch: 스크래치 레인 표시 여부
+  setLayout(lanes, hasScratch) {
+    this.laneW = []; this.visualLane = []; this.laneToVisual = {}; this.keyLabels = [];
+    if (hasScratch) {
+      this.laneW.push(64); this.visualLane.push(7); this.keyLabels.push('SC');
+    }
+    for (const lane of lanes) {
+      this.laneW.push(lane % 2 === 0 ? 42 : 34);
+      this.visualLane.push(lane);
+      this.keyLabels.push(String(lane + 1));
+    }
+    let x = 0; this.laneX = [];
+    for (const w of this.laneW) { this.laneX.push(x); x += w + 1; }
+    this.fieldW = x - 1;
+    this.canvas.width = this.fieldW;
+    for (let v = 0; v < this.visualLane.length; v++) this.laneToVisual[this.visualLane[v]] = v;
+  },
+
+  laneColor(lane) {
+    if (lane === 7) return '#e0322e';
+    return (lane % 2 === 0) ? '#e8e8e8' : '#4aa3ff'; // 홀수 키 흰색 / 짝수 키 파랑
+  },
+
+  draw() {
+    const c = this.ctx, W = this.canvas.width, H = this.canvas.height;
+    c.clearRect(0, 0, W, H);
+    const t = Game.playing || Game.finished ? Game.now() : 0;               // 이펙트용
+    const tg = Game.playing || Game.finished ? Game.gameTime() : 0;          // 노트 위치용
+    const curBeat = Game.timing ? Game.timing.timeToBeat(Math.max(0, tg)) : 0;
+    const pxPerBeat = 60 * Game.hispeed;
+
+    // lane backgrounds
+    for (let v = 0; v < this.visualLane.length; v++) {
+      const x = this.laneX[v], w = this.laneW[v];
+      c.fillStyle = '#0a0a0d';
+      c.fillRect(x, this.topY, w, this.judgeY - this.topY);
+      // key beam
+      const lane = this.visualLane[v];
+      if (Game.laneState[lane]) {
+        const g = c.createLinearGradient(0, this.judgeY - 220, 0, this.judgeY);
+        g.addColorStop(0, 'rgba(255,255,255,0)');
+        g.addColorStop(1, lane === 7 ? 'rgba(224,50,46,0.45)' : 'rgba(160,200,255,0.4)');
+        c.fillStyle = g;
+        c.fillRect(x, this.judgeY - 220, w, 220);
+      }
+      c.strokeStyle = '#26262e';
+      c.strokeRect(x + 0.5, this.topY + 0.5, w, this.judgeY - this.topY);
+    }
+
+    // measure lines
+    if (Game.timing) {
+      const cum = Game.timing.cum;
+      for (let i = 0; i < cum.length; i++) {
+        const y = this.judgeY - (cum[i] - curBeat) * pxPerBeat;
+        if (y < this.topY) break;
+        if (y > this.judgeY) continue;
+        c.strokeStyle = '#2c2c34';
+        c.beginPath(); c.moveTo(0, y + 0.5); c.lineTo(this.fieldW, y + 0.5); c.stroke();
+      }
+    }
+
+    // notes
+    for (const n of Game.notes) {
+      if (n.state === 1) continue;
+      const v = this.laneToVisual[n.lane];
+      if (v === undefined) continue;
+      const x = this.laneX[v], w = this.laneW[v];
+      const yHead = this.judgeY - (n.beat - curBeat) * pxPerBeat;
+      const yTail = this.judgeY - (n.endBeat - curBeat) * pxPerBeat;
+      if (Math.min(yHead, yTail) > this.judgeY + 40 && n.state !== 3) continue;
+      if (Math.max(yHead, yTail) < this.topY) break;
+
+      const col = n.state === 2 ? '#55555c' : this.laneColor(n.lane);
+      if (n.ln) {
+        const bodyTop = clamp(yTail, this.topY, this.judgeY);
+        const bodyBot = clamp(n.state === 3 ? this.judgeY : yHead, this.topY, this.judgeY);
+        c.fillStyle = n.state === 3 ? 'rgba(126,249,255,0.55)' : (n.state === 2 ? 'rgba(85,85,92,0.4)' : 'rgba(180,180,200,0.35)');
+        c.fillRect(x + 3, bodyTop, w - 6, Math.max(0, bodyBot - bodyTop));
+        c.fillStyle = col;
+        if (yTail >= this.topY && yTail <= this.judgeY) c.fillRect(x, yTail - 5, w, 10);
+        if (n.state !== 3 && yHead >= this.topY && yHead <= this.judgeY) c.fillRect(x, yHead - 5, w, 10);
+      } else {
+        if (yHead >= this.topY - 10 && yHead <= this.judgeY + 10) {
+          c.fillStyle = col;
+          c.fillRect(x, yHead - 6, w, 11);
+          c.fillStyle = 'rgba(255,255,255,0.25)';
+          c.fillRect(x, yHead - 6, w, 3);
+        }
+      }
+    }
+
+    // judge line
+    c.fillStyle = '#e0322e';
+    c.fillRect(0, this.judgeY, this.fieldW, 4);
+
+    // bombs
+    for (const lane of this.visualLane) {
+      const dt = t - Game.bombs[lane];
+      if (Game.bombs[lane] > 0 && dt < 0.28) {
+        const v = this.laneToVisual[lane];
+        const cx = this.laneX[v] + this.laneW[v] / 2;
+        const r = 12 + dt * 160;
+        c.globalAlpha = 1 - dt / 0.28;
+        const g = c.createRadialGradient(cx, this.judgeY, 2, cx, this.judgeY, r);
+        g.addColorStop(0, '#fffbe0'); g.addColorStop(0.4, '#ffd257'); g.addColorStop(1, 'rgba(224,50,46,0)');
+        c.fillStyle = g;
+        c.beginPath(); c.arc(cx, this.judgeY, r, 0, Math.PI * 2); c.fill();
+        c.globalAlpha = 1;
+      }
+    }
+
+    // key panel
+    for (let v = 0; v < this.visualLane.length; v++) {
+      const x = this.laneX[v], w = this.laneW[v];
+      const lane = this.visualLane[v];
+      c.fillStyle = Game.laneState[lane] ? (lane === 7 ? '#a2231f' : '#2f5f9e') : '#17171c';
+      c.fillRect(x, this.judgeY + 6, w, 44);
+      c.strokeStyle = '#33333c'; c.strokeRect(x + 0.5, this.judgeY + 6.5, w, 44);
+      c.fillStyle = '#8a8a96';
+      c.font = '10px "Segoe UI", sans-serif';
+      c.textAlign = 'center';
+      c.fillText(this.keyLabels[v], x + w / 2, this.judgeY + 33);
+    }
+
+    // combo + judge text (center of field)
+    if (Game.lastJudge >= 0 && t - Game.lastJudgeTime < 0.6) {
+      const cy = this.topY + (this.judgeY - this.topY) * 0.55;
+      c.textAlign = 'center';
+      if (Game.combo > 1) {
+        c.font = 'bold 44px "Arial Black", sans-serif';
+        c.fillStyle = '#ffb347';
+        c.strokeStyle = '#7a3c00'; c.lineWidth = 2;
+        c.strokeText(String(Game.combo), this.fieldW / 2, cy - 26);
+        c.fillText(String(Game.combo), this.fieldW / 2, cy - 26);
+      }
+      c.font = 'bold 20px "Arial Black", sans-serif';
+      c.fillStyle = JUDGE_COLORS[Game.lastJudge];
+      c.fillText(JUDGE_NAMES[Game.lastJudge], this.fieldW / 2, cy + 4);
+      if (Game.lastJudge >= 1 && Game.lastJudge <= 2 && Game.lastDelta !== 0) {
+        c.font = 'bold 13px sans-serif';
+        c.fillStyle = Game.lastDelta < 0 ? '#5db3ff' : '#ff6a6a';
+        c.fillText(Game.lastDelta < 0 ? 'FAST' : 'SLOW', this.fieldW / 2, cy + 22);
+      }
+    }
+
+    // groove gauge (bottom)
+    const gy = H - 40, cells = 50;
+    const active = Math.round(Game.gauge / 2);
+    for (let i = 0; i < cells; i++) {
+      const on = i < active;
+      const red = i >= 40; // 80%+ = clear zone
+      c.fillStyle = on ? (red ? '#ff5a52' : '#59e07a') : '#232329';
+      c.fillRect(4 + i * ((this.fieldW - 8) / cells), gy, (this.fieldW - 8) / cells - 2, 16);
+    }
+    c.fillStyle = '#cfcfd8'; c.font = 'bold 13px monospace'; c.textAlign = 'right';
+    c.fillText(Game.gauge.toFixed(0) + '%', this.fieldW - 6, gy - 5);
+    c.textAlign = 'left';
+    c.fillStyle = '#8a8a96'; c.fillText('GROOVE', 6, gy - 5);
+  },
+};
+
+/* ---------- BGA view ---------- */
+const BGAView = {
+  canvas: null, ctx: null,
+  init(canvas) { this.canvas = canvas; this.ctx = canvas.getContext('2d'); },
+  drawRes(r) {
+    const c = this.ctx, W = this.canvas.width, H = this.canvas.height;
+    const src = r.type === 'video' ? r.el : r.img;
+    const sw = r.type === 'video' ? src.videoWidth : src.width;
+    const sh = r.type === 'video' ? src.videoHeight : src.height;
+    if (!sw || !sh) return;
+    const s = Math.min(W / sw, H / sh);
+    const dw = sw * s, dh = sh * s;
+    c.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  },
+  draw() {
+    const c = this.ctx, W = this.canvas.width, H = this.canvas.height;
+    c.fillStyle = '#000';
+    c.fillRect(0, 0, W, H);
+    if (!Game.bga) return;
+    const poorActive = Game.bgaCur.poorUntil > Game.now() && Game.bgaCur.poorId !== null;
+    const baseId = poorActive ? Game.bgaCur.poorId : Game.bgaCur.base;
+    if (baseId !== null && Game.bgaRes[baseId]) this.drawRes(Game.bgaRes[baseId]);
+    if (!poorActive && Game.bgaCur.layer !== null && Game.bgaRes[Game.bgaCur.layer]) {
+      this.drawRes(Game.bgaRes[Game.bgaCur.layer]);
+    }
+  },
+};
+
+/* ---------- UI glue ---------- */
+const UI = {
+  compiled: null, selectedChart: null, timing: null,
+  keymap: { ShiftLeft: 7, KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4, KeyF: 5, KeyV: 6 },
+  bindingLane: null,  // 키 설정 대기 중인 레인
+  LANE_NAMES: ['1', '2', '3', '4', '5', '6', '7', 'SC'],
+
+  init() {
+    Field.init($('#field'));
+    BGAView.init($('#bga'));
+    this.renderKeyConfig();
+
+    // 오프셋 컨트롤
+    const offInput = $('#offsetInput');
+    offInput.addEventListener('change', () => {
+      Game.offset = clamp(parseInt(offInput.value, 10) || 0, -300, 300) / 1000;
+      offInput.value = Math.round(Game.offset * 1000);
+      this.updateSidePanel();
+    });
+    $('#offMinus').addEventListener('click', () => this.nudgeOffset(-5));
+    $('#offPlus').addEventListener('click', () => this.nudgeOffset(5));
+    $('#folderInput').addEventListener('change', (e) => this.onFiles(e.target.files));
+    $('#fileInput').addEventListener('change', (e) => this.onFiles(e.target.files));
+
+    const dz = $('#dropzone');
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+    dz.addEventListener('drop', async (e) => {
+      e.preventDefault(); dz.classList.remove('over');
+      const items = e.dataTransfer.items;
+      if (items && items.length && items[0].webkitGetAsEntry) {
+        const files = [];
+        const walk = (entry) => new Promise((res) => {
+          if (entry.isFile) entry.file((f) => { files.push(f); res(); });
+          else if (entry.isDirectory) {
+            const reader = entry.createReader();
+            const readAll = () => reader.readEntries(async (ents) => {
+              if (!ents.length) return res();
+              for (const en of ents) await walk(en);
+              readAll();
+            });
+            readAll();
+          } else res();
+        });
+        for (const it of items) { const en = it.webkitGetAsEntry(); if (en) await walk(en); }
+        this.onFiles(files);
+      } else {
+        this.onFiles(e.dataTransfer.files);
+      }
+    });
+
+    document.addEventListener('keydown', (e) => this.onKey(e, true));
+    document.addEventListener('keyup', (e) => this.onKey(e, false));
+
+    requestAnimationFrame(() => this.frame());
+  },
+
+  nudgeOffset(deltaMs) {
+    Game.offset = clamp(Game.offset + deltaMs / 1000, -0.3, 0.3);
+    $('#offsetInput').value = Math.round(Game.offset * 1000);
+    this.updateSidePanel();
+  },
+
+  keyLabel(code) {
+    if (code.startsWith('Key')) return code.slice(3);
+    if (code.startsWith('Digit')) return code.slice(5);
+    return code.replace('Left', ' L').replace('Right', ' R');
+  },
+
+  renderKeyConfig() {
+    const box = $('#keyConfig');
+    box.innerHTML = '';
+    // 표시 순서: SC, 1..7
+    const order = [7, 0, 1, 2, 3, 4, 5, 6];
+    for (const lane of order) {
+      const code = Object.keys(this.keymap).find(k => this.keymap[k] === lane);
+      const inactive = this.activeLanes && !this.activeLanes.has(lane);
+      const btn = document.createElement('button');
+      btn.className = 'keybind' + (this.bindingLane === lane ? ' waiting' : '') + (inactive ? ' inactive' : '');
+      btn.title = inactive ? '이 채보에서 사용하지 않는 레인' : '';
+      btn.innerHTML = '<span>' + this.LANE_NAMES[lane] + '</span><b>' +
+        (this.bindingLane === lane ? '키 입력…' : (code ? escapeHtml(this.keyLabel(code)) : '없음')) + '</b>';
+      btn.onclick = () => {
+        this.bindingLane = this.bindingLane === lane ? null : lane;
+        this.renderKeyConfig();
+      };
+      box.appendChild(btn);
+    }
+  },
+
+  async onFiles(files) {
+    try {
+      $('#loadStatus').textContent = '파일 읽는 중…';
+      Loader.reset();
+      await Loader.addFiles([...files]);
+      if (!Loader.charts.length) {
+        $('#loadStatus').textContent = 'BMS/BME/BML 파일을 찾지 못했습니다.';
+        return;
+      }
+      $('#loadStatus').textContent = '';
+      this.showChartList();
+    } catch (err) {
+      $('#loadStatus').textContent = '오류: ' + err.message;
+    }
+  },
+
+  showChartList() {
+    const list = $('#chartList');
+    list.innerHTML = '';
+    for (const ch of Loader.charts) {
+      const meta = parseBMS(ch.text);
+      const mode = detectMode(meta);
+      const li = document.createElement('button');
+      li.className = 'chart-item';
+      li.innerHTML =
+        '<span class="lv">' + (meta.playlevel ? '☆' + meta.playlevel : '—') + '</span>' +
+        '<span class="ttl"><i class="mode">' + mode.label + '</i> ' + escapeHtml(meta.title || ch.name) + ' <em>' + escapeHtml(meta.subtitle || '') + '</em></span>' +
+        '<span class="sub">' + escapeHtml(meta.genre) + ' / ' + escapeHtml(meta.artist) + ' / BPM ' + meta.bpm + '</span>';
+      li.onclick = () => { li.blur(); this.prepare(ch, meta); };
+      list.appendChild(li);
+    }
+    $('#screen-select').classList.remove('hidden');
+    $('#dropzone').classList.add('compact');
+  },
+
+  async prepare(chartFile, chart) {
+    if (this.preparing) return;          // 준비 중 중복 클릭/Enter 방지
+    this.preparing = true;
+    this.ready = false;                  // 디코딩 완료 전 Enter로 시작 못 하게
+    try {
+    AudioEngine.init();
+    if (AudioEngine.ctx.state === 'suspended') await AudioEngine.ctx.resume();
+    this.selectedChart = chart;
+    this.timing = buildTiming(chart);
+    this.compiled = compileNotes(chart, this.timing);
+    this.mode = detectMode(chart);
+    // 키 설정 패널에 이 채보에서 쓰는 레인 표시
+    this.activeLanes = new Set(this.compiled.notes.map(n => n.lane));
+    this.renderKeyConfig();
+
+    $('#loadStatus').textContent = '키음 디코딩 중… 0%';
+    const r = await Loader.decodeKeysounds(chart, (done, total) => {
+      $('#loadStatus').textContent = '키음 디코딩 중… ' + Math.round(done / total * 100) + '%';
+    });
+
+    // BGA 리소스 로딩 (레이어 채널에서 쓰이는 id는 흑색 투명 처리)
+    Game.bgaRes = {};
+    const bgaCount = this.compiled.bga.base.length + this.compiled.bga.layer.length;
+    let bgaMsg = '';
+    if (Object.keys(chart.bmps).length && bgaCount) {
+      $('#loadStatus').textContent = 'BGA 로딩 중…';
+      const layerIds = new Set(this.compiled.bga.layer.map(e => e.id));
+      const b = await Loader.loadBGA(chart, layerIds, (done, total) => {
+        $('#loadStatus').textContent = 'BGA 로딩 중… ' + Math.round(done / total * 100) + '%';
+      });
+      Game.bgaRes = b.resources;
+      bgaMsg = ' · BGA ' + b.found + '/' + b.total;
+    }
+
+    $('#loadStatus').textContent =
+      '키음 ' + r.found + '/' + r.total + ' 로드됨' + bgaMsg +
+      ' · 노트 ' + this.compiled.notes.length + '개 · Enter=플레이 / A=오토';
+    $('#playInfo').classList.remove('hidden');
+    $('#infoTitle').textContent = chart.title + (chart.subtitle ? ' ' + chart.subtitle : '');
+    $('#infoDetail').textContent = this.mode.label + ' / ' + chart.genre + ' / ' + chart.artist + ' / BPM ' + chart.bpm + ' / ☆' + chart.playlevel;
+    this.ready = true;
+    } catch (err) {
+      $('#loadStatus').textContent = '준비 중 오류: ' + err.message;
+    } finally {
+      this.preparing = false;
+    }
+  },
+
+  startPlay(autoplay) {
+    if (!this.ready) return;
+    Field.setLayout(this.mode.lanes, this.mode.hasScratch);
+    $('#screen-select').classList.add('hidden');
+    $('#screen-play').classList.remove('hidden');
+    $('#result').classList.add('hidden');
+    Game.start(this.selectedChart, this.timing, {
+      notes: this.compiled.notes.map(n => ({ ...n })),
+      bgms: this.compiled.bgms,
+      bga: this.compiled.bga,
+    }, autoplay);
+    Game.timing = this.timing;
+    this.updateSidePanel();
+  },
+
+  onKey(e, down) {
+    if (e.repeat) return;
+    // 키 바인딩 캡처 모드
+    if (this.bindingLane !== null && down) {
+      e.preventDefault();
+      if (e.code !== 'Escape') {
+        // 기존에 이 키가 다른 레인에 있으면 제거
+        delete this.keymap[e.code];
+        // 이 레인의 기존 키 제거 후 새로 배정
+        for (const k of Object.keys(this.keymap)) {
+          if (this.keymap[k] === this.bindingLane) delete this.keymap[k];
+        }
+        this.keymap[e.code] = this.bindingLane;
+      }
+      this.bindingLane = null;
+      this.renderKeyConfig();
+      return;
+    }
+    // global keys
+    if (down) {
+      // 포커스가 버튼에 남아 Enter/Space가 클릭을 중복 발생시키는 것 방지
+      if ((e.code === 'Enter' || e.code === 'Space') && document.activeElement && document.activeElement.tagName === 'BUTTON') {
+        e.preventDefault();
+        document.activeElement.blur();
+      }
+      if (e.code === 'Enter' && !Game.playing && !this.preparing && this.ready) { this.startPlay(false); return; }
+      if (e.code === 'KeyA' && !Game.playing && !this.preparing && this.ready) { this.startPlay(true); return; }
+      if (e.code === 'Escape' && (Game.playing || Game.finished)) {
+        Game.playing = false; Game.finished = false;
+        $('#screen-play').classList.add('hidden');
+        $('#result').classList.add('hidden');
+        $('#screen-select').classList.remove('hidden');
+        return;
+      }
+      if (e.code === 'ArrowUp')   { Game.hispeed = clamp(Game.hispeed + 0.25, 0.5, 10); this.updateSidePanel(); }
+      if (e.code === 'ArrowDown') { Game.hispeed = clamp(Game.hispeed - 0.25, 0.5, 10); this.updateSidePanel(); }
+      if (e.code === 'BracketLeft')  this.nudgeOffset(-5);
+      if (e.code === 'BracketRight') this.nudgeOffset(5);
+    }
+    const lane = this.keymap[e.code];
+    if (lane === undefined) return;
+    e.preventDefault();
+    if (!Game.autoplay) Game.laneState[lane] = down;
+    if (down) Game.keyDown(lane); else Game.keyUp(lane);
+  },
+
+  updateSidePanel() {
+    $('#hsVal').textContent = Game.hispeed.toFixed(2);
+    $('#sOff').textContent = (Game.offset >= 0 ? '+' : '') + Math.round(Game.offset * 1000) + 'ms';
+    if (Game.chart) {
+      $('#sTitle').textContent = Game.chart.title;
+      $('#sArtist').textContent = Game.chart.artist;
+    }
+  },
+
+  frame() {
+    try {
+      Game.update();
+      Field.draw();
+      BGAView.draw();
+    // side panel live values
+    if (Game.playing || Game.finished) {
+      $('#sEx').textContent = Game.ex;
+      $('#sMax').textContent = Game.maxCombo;
+      $('#sBpm').textContent = Game.timing ? Game.timing.bpmAt(Math.max(0, Game.now())).toFixed(0) : '-';
+      const c = Game.counts;
+      $('#sPg').textContent = c.PG; $('#sGr').textContent = c.GR;
+      $('#sGd').textContent = c.GD; $('#sBd').textContent = c.BD; $('#sPr').textContent = c.PR;
+      $('#sFast').textContent = Game.fastSlow.fast; $('#sSlow').textContent = Game.fastSlow.slow;
+    }
+    } catch (err) {
+      console.error('frame error:', err);
+    }
+    requestAnimationFrame(() => this.frame());
+  },
+
+  showResult() {
+    const c = Game.counts;
+    const maxEx = Game.totalNotes * 2;
+    const rate = maxEx ? Game.ex / maxEx : 0;
+    let grade = 'F';
+    if (rate >= 8 / 9) grade = 'AAA'; else if (rate >= 7 / 9) grade = 'AA';
+    else if (rate >= 6 / 9) grade = 'A'; else if (rate >= 5 / 9) grade = 'B';
+    else if (rate >= 4 / 9) grade = 'C'; else if (rate >= 3 / 9) grade = 'D';
+    else if (rate >= 2 / 9) grade = 'E';
+    const cleared = Game.gauge >= 80;
+    $('#rGrade').textContent = grade;
+    $('#rGrade').style.color = cleared ? '#59e07a' : '#ff5a52';
+    $('#rClear').textContent = Game.autoplay ? 'AUTOPLAY' : (cleared ? 'CLEAR' : 'FAILED');
+    $('#rClear').style.color = cleared ? '#59e07a' : '#ff5a52';
+    $('#rBody').innerHTML =
+      row('EX SCORE', Game.ex + ' / ' + maxEx + ' (' + (rate * 100).toFixed(2) + '%)') +
+      row('MAX COMBO', Game.maxCombo + ' / ' + Game.totalNotes) +
+      row('PGREAT', c.PG) + row('GREAT', c.GR) + row('GOOD', c.GD) +
+      row('BAD', c.BD) + row('POOR', c.PR) +
+      row('FAST / SLOW', Game.fastSlow.fast + ' / ' + Game.fastSlow.slow);
+    $('#result').classList.remove('hidden');
+    function row(k, v) { return '<div class="rrow"><span>' + k + '</span><b>' + v + '</b></div>'; }
+  },
+};
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+window.addEventListener('DOMContentLoaded', () => UI.init());
+</script>
+</body>
+</html>
