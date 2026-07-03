@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EB PLAYER</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fflate/0.8.2/index.min.js" onerror="console.warn('zip lib unavailable')"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsmpeg/0.2/jsmpg.min.js" onerror="console.warn('mpeg lib unavailable')"></script>
 <style>
 :root{
   --bg:#0b0b0e; --panel:#141419; --line:#26262e;
@@ -45,6 +46,7 @@ header span{color:var(--dim); font-size:12px; letter-spacing:1px}
 }
 .btn:hover{border-color:var(--red); color:#fff}
 .btn:focus-visible{outline:2px solid var(--amber)}
+.btn.active{border-color:var(--red); background:#2a1214; color:#fff}
 #loadStatus{margin:14px 2px; font-size:13px; color:var(--amber); min-height:18px; font-family:monospace}
 #chartList{display:flex; flex-direction:column; gap:6px; margin-top:8px}
 .chart-item{
@@ -128,6 +130,7 @@ header span{color:var(--dim); font-size:12px; letter-spacing:1px}
 }
 .offctl .btn{padding:6px 12px}
 .offctl small{color:var(--dim); font-size:11px}
+.hsval{font-family:monospace; font-size:16px; color:var(--cyan); min-width:52px; text-align:center; display:inline-block}
 #bga{background:#000; border:1px solid var(--line); display:block; width:100%}
 #playcol{display:flex; flex-direction:column; gap:14px; width:280px}
 
@@ -155,6 +158,23 @@ header span{color:var(--dim); font-size:12px; letter-spacing:1px}
     <div class="cfg">
       <h3>KEY CONFIG</h3>
       <div id="keyConfig"></div>
+    </div>
+    <div class="cfg">
+      <h3>JUDGE</h3>
+      <div class="offctl">
+        <button class="btn active" id="judgeNormal">기본</button>
+        <button class="btn" id="judgeEasy">이지</button>
+      </div>
+      <div class="offctl" style="margin-top:8px"><small>이지: PGREAT &plusmn;42ms / GOOD &plusmn;200ms &middot; 초보자용 넓은 판정</small></div>
+    </div>
+    <div class="cfg">
+      <h3>HI-SPEED</h3>
+      <div class="offctl">
+        <button class="btn" id="hsMinus">&minus;0.25</button>
+        <span id="hsSelVal" class="hsval">2.00</span>
+        <button class="btn" id="hsPlus">+0.25</button>
+      </div>
+      <div class="offctl" style="margin-top:8px"><small>노트 낙하 속도 &middot; 플레이 중 &uarr;&darr; 키</small></div>
     </div>
     <div class="cfg">
       <h3>JUDGE OFFSET</h3>
@@ -185,7 +205,7 @@ header span{color:var(--dim); font-size:12px; letter-spacing:1px}
     <div class="artist" id="sArtist"></div>
     <div class="stat"><span>BPM</span><b id="sBpm">-</b></div>
     <div class="stat"><span>HI-SPEED</span><b id="hsVal">2.00</b></div>
-    <div class="stat"><span>EX SCORE</span><b id="sEx">0</b></div>
+    <div class="stat"><span>ACCURACY</span><b id="sEx">100.00%</b></div>
     <div class="stat"><span>MAX COMBO</span><b id="sMax">0</b></div>
     <div class="stat j"><span>PGREAT</span><b class="pg" id="sPg">0</b></div>
     <div class="stat j"><span>GREAT</span><b class="gr" id="sGr">0</b></div>
@@ -195,6 +215,7 @@ header span{color:var(--dim); font-size:12px; letter-spacing:1px}
     <div class="stat"><span>FAST</span><b id="sFast">0</b></div>
     <div class="stat"><span>SLOW</span><b id="sSlow">0</b></div>
     <div class="stat"><span>OFFSET</span><b id="sOff">+0ms</b></div>
+    <div class="stat"><span>JUDGE</span><b id="sJudge">기본 (PG &plusmn;21ms)</b></div>
     <div class="hint">Esc: 선곡 화면 / ↑↓: 하이스피드 / [ ]: 오프셋<br>게이지 80% 이상으로 완주하면 CLEAR</div>
   </aside>
   </div>
@@ -467,6 +488,7 @@ function compileNotes(chart, timing) {
 const AudioEngine = {
   ctx: null,
   buffers: {},       // wavId -> AudioBuffer
+  active: new Set(), // 재생 중인 BufferSource (Esc 시 일괄 정지용)
   init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
   play(wavId, when = 0) {
     const buf = this.buffers[wavId];
@@ -474,8 +496,16 @@ const AudioEngine = {
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     src.connect(this.ctx.destination);
+    src.onended = () => this.active.delete(src);
+    this.active.add(src);
     src.start(when > 0 ? when : 0);
     return src;
+  },
+  stopAll() {
+    for (const src of this.active) {
+      try { src.stop(); } catch (e) {}
+    }
+    this.active.clear();
   },
 };
 
@@ -484,13 +514,15 @@ const CHART_EXT = ['bms', 'bme', 'bml', 'pms'];
 const SOUND_EXT = ['wav', 'ogg', 'mp3', 'flac', 'm4a'];
 const IMAGE_EXT = ['bmp', 'png', 'jpg', 'jpeg', 'gif', 'webp'];
 const VIDEO_EXT = ['mp4', 'webm', 'mpg', 'mpeg', 'avi', 'wmv', 'm1v', 'm2v'];
+// 같은 파일명이 여러 형식으로 있을 때의 우선순위 (mp4 변환본이 있으면 mpg 대신 사용)
+const EXT_RANK = { webm: 5, mp4: 5, png: 4, jpg: 4, jpeg: 4, gif: 4, webp: 4, bmp: 4, mpg: 2, mpeg: 2, m1v: 2, m2v: 2, avi: 1, wmv: 1 };
 
 const Loader = {
   sounds: {},   // lowercase basename (no ext) -> File|Blob
   visuals: {},  // lowercase basename (no ext) -> {file, ext}
   charts: [],   // {name, text}
 
-  reset() { this.sounds = {}; this.visuals = {}; this.charts = []; },
+  reset() { this.sounds = {}; this.visuals = {}; this.charts = []; this.warnings = []; },
 
   baseKey(name) {
     const base = name.split('/').pop().split('\\').pop();
@@ -502,18 +534,31 @@ const Loader = {
     return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
   },
 
+  addVisual(name, file, e) {
+    const key = this.baseKey(name);
+    const prev = this.visuals[key];
+    if (prev && (EXT_RANK[prev.ext] || 0) >= (EXT_RANK[e] || 0)) return; // 기존이 더 좋은 형식이면 유지
+    this.visuals[key] = { file, ext: e };
+  },
+
   async addFiles(fileList) {
+    this.warnings = [];
     for (const f of fileList) {
       const e = this.ext(f.name);
-      if (CHART_EXT.includes(e)) {
-        const buf = await f.arrayBuffer();
-        this.charts.push({ name: f.name, text: decodeBuffer(buf) });
-      } else if (SOUND_EXT.includes(e)) {
-        this.sounds[this.baseKey(f.name)] = f;
-      } else if (IMAGE_EXT.includes(e) || VIDEO_EXT.includes(e)) {
-        this.visuals[this.baseKey(f.name)] = { file: f, ext: e };
-      } else if (e === 'zip') {
-        await this.addZip(f);
+      try {
+        if (CHART_EXT.includes(e)) {
+          const buf = await f.arrayBuffer();
+          this.charts.push({ name: f.name, text: decodeBuffer(buf) });
+        } else if (SOUND_EXT.includes(e)) {
+          this.sounds[this.baseKey(f.name)] = f;
+        } else if (IMAGE_EXT.includes(e) || VIDEO_EXT.includes(e)) {
+          this.addVisual(f.name, f, e);
+        } else if (e === 'zip') {
+          await this.addZip(f);
+        }
+      } catch (err) {
+        // 파일 하나(예: zip)의 실패가 폴더 전체 로딩을 막지 않도록 격리
+        this.warnings.push(f.name + ': ' + err.message);
       }
     }
     this.charts.sort((a, b) => a.name.localeCompare(b.name));
@@ -532,7 +577,8 @@ const Loader = {
       } else if (SOUND_EXT.includes(e)) {
         this.sounds[this.baseKey(name)] = new Blob([data]);
       } else if (IMAGE_EXT.includes(e) || VIDEO_EXT.includes(e)) {
-        this.visuals[this.baseKey(name)] = { file: new Blob([data]), ext: e };
+        const mime = { bmp:'image/bmp', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif', webp:'image/webp', mp4:'video/mp4', webm:'video/webm' }[e] || '';
+        this.addVisual(name, new Blob([data], { type: mime }), e);
       }
     }
   },
@@ -564,35 +610,145 @@ const Loader = {
     const out = {}; // id -> {type:'image'|'video', el|img}
     const ids = Object.keys(chart.bmps);
     let done = 0, found = 0;
+    const unsupported = []; // 브라우저가 못 여는 동영상 파일명
     for (const id of ids) {
       const key = this.baseKey(chart.bmps[id]);
       const v = this.visuals[key];
       if (v) {
         try {
-          if (VIDEO_EXT.includes(v.ext)) {
+          if (['mpg', 'mpeg', 'm1v', 'm2v'].includes(v.ext)) {
+            const a = await analyzeMpeg(v.file);
+            if (a.mpeg2) {
+              unsupported.push(chart.bmps[id] + ' (MPEG-2)');
+            } else {
+              // 프로그램 스트림이면 비디오만 추출 (PES 헤더로 인한 화면 깨짐 방지)
+              // B-프레임은 jsmpeg가 타이밍을 유지하며 건너뛰므로 그대로 재생 가능
+              const raw = new Uint8Array(await v.file.arrayBuffer());
+              const es = demuxMpegPS(raw);
+              const p = await makeMpegPlayer(URL.createObjectURL(new Blob([es])));
+              if (p) { out[id] = { type: 'mpeg', player: p.player, canvas: p.canvas }; found++; }
+              else unsupported.push(chart.bmps[id]);
+            }
+          } else if (VIDEO_EXT.includes(v.ext)) {
             const el = document.createElement('video');
             el.muted = true; el.playsInline = true; el.preload = 'auto';
             el.src = URL.createObjectURL(v.file);
             await new Promise((res) => {
               el.onloadeddata = res;
-              el.onerror = res; // 미지원 코덱(mpg/avi/wmv 등)은 건너뜀
+              el.onerror = res;
               setTimeout(res, 4000);
             });
             if (el.readyState >= 2) { out[id] = { type: 'video', el }; found++; }
+            else unsupported.push(chart.bmps[id]);
           } else {
-            let bmp = await createImageBitmap(v.file);
-            if (layerIds.has(Number(id))) bmp = chromaKeyBlack(bmp); // 레이어는 검정=투명
-            out[id] = { type: 'image', img: bmp };
-            found++;
+            let img = await decodeImage(v.file);
+            if (img && layerIds.has(Number(id))) img = chromaKeyBlack(img); // 레이어는 검정=투명
+            if (img) { out[id] = { type: 'image', img }; found++; }
           }
         } catch (e) { /* skip undecodable */ }
       }
       done++;
       if (onProgress && (done % 4 === 0 || done === ids.length)) onProgress(done, ids.length, found);
     }
-    return { resources: out, total: ids.length, found };
+    return { resources: out, total: ids.length, found, unsupported };
   },
 };
+
+// MPEG 비트스트림 검사: jsmpeg은 B-프레임 없는 MPEG-1만 정상 디코딩 가능
+// (MPEG-2나 B-프레임 포함 파일을 억지로 디코딩하면 화면이 깨짐)
+async function analyzeMpeg(blob) {
+  const head = new Uint8Array(await blob.slice(0, 768 * 1024).arrayBuffer());
+  let mpeg2 = false, bframes = false;
+  for (let i = 0; i + 5 < head.length; i++) {
+    if (head[i] === 0 && head[i + 1] === 0 && head[i + 2] === 1) {
+      const code = head[i + 3];
+      if (code === 0xB5) mpeg2 = true; // extension start code = MPEG-2
+      else if (code === 0x00) {
+        // picture header: 10bit temporal_ref 다음 3bit picture_coding_type
+        const type = (head[i + 5] >> 3) & 0x07;
+        if (type === 3) bframes = true; // B-frame
+      }
+      if (mpeg2 && bframes) break;
+    }
+  }
+  return { mpeg2, bframes };
+}
+
+// MPEG-1 프로그램 스트림(.mpg) 디먹스: 비디오 PES 페이로드만 추출해 elementary stream으로.
+// jsmpeg는 PES 헤더가 슬라이스 중간을 끊는 것을 처리하지 못해 화면이 깨지므로 필수.
+function demuxMpegPS(u8) {
+  let isPS = false;
+  for (let i = 0; i + 3 < Math.min(u8.length, 4096); i++) {
+    if (u8[i] === 0 && u8[i + 1] === 0 && u8[i + 2] === 1 && u8[i + 3] === 0xBA) { isPS = true; break; }
+  }
+  if (!isPS) return u8; // elementary stream — 그대로 사용
+  const out = new Uint8Array(u8.length);
+  let o = 0, i = 0;
+  while (i + 3 < u8.length) {
+    if (!(u8[i] === 0 && u8[i + 1] === 0 && u8[i + 2] === 1)) { i++; continue; }
+    const code = u8[i + 3];
+    if (code === 0xBA) { i += 12; continue; }                     // pack header (MPEG-1: 12바이트)
+    if (code === 0xB9) break;                                      // program end
+    if (code >= 0xBB && code <= 0xFF) {                            // system header / PES
+      const len = (u8[i + 4] << 8) | u8[i + 5];
+      const payloadStart = i + 6, payloadEnd = payloadStart + len;
+      if (code >= 0xE0 && code <= 0xEF) {                          // video PES
+        let j = payloadStart;
+        while (j < payloadEnd && u8[j] === 0xFF) j++;              // stuffing
+        if (j < payloadEnd && (u8[j] & 0xC0) === 0x40) j += 2;     // STD buffer size
+        if (j < payloadEnd) {
+          const top = u8[j] & 0xF0;
+          if (top === 0x20) j += 5;                                // PTS
+          else if (top === 0x30) j += 10;                          // PTS+DTS
+          else j += 1;                                             // 타임스탬프 없음(0x0F)
+        }
+        for (let k = j; k < payloadEnd && k < u8.length; k++) out[o++] = u8[k];
+      }
+      i = payloadEnd;
+      continue;
+    }
+    i++;
+  }
+  return out.subarray(0, o);
+}
+
+// jsmpeg(구버전 0.2)/JSMpeg(신버전) 어느 쪽이 로드됐든 사용하는 어댑터
+function makeMpegPlayer(url) {
+  return new Promise((resolve) => {
+    try {
+      if (window.JSMpeg && window.JSMpeg.Player) {
+        const canvas = document.createElement('canvas');
+        const player = new window.JSMpeg.Player(url, { canvas, autoplay: false, audio: false, loop: false });
+        setTimeout(() => resolve({ player, canvas }), 300);
+        return;
+      }
+      if (window.jsmpeg) {
+        const canvas = document.createElement('canvas');
+        let settled = false;
+        const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+        const player = new window.jsmpeg(url, {
+          canvas, autoplay: false, loop: false,
+          onload: () => done({ player, canvas }),
+        });
+        setTimeout(() => done(player ? { player, canvas } : null), 5000);
+        return;
+      }
+    } catch (e) {}
+    resolve(null);
+  });
+}
+
+// createImageBitmap 실패 시 <img> 경유 폴백 (일부 BMP 변형 대응)
+async function decodeImage(blob) {
+  try { return await createImageBitmap(blob); } catch (e) {}
+  return new Promise((res) => {
+    const url = URL.createObjectURL(blob);
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => { URL.revokeObjectURL(url); res(null); };
+    im.src = url;
+  });
+}
 
 function chromaKeyBlack(bmp) {
   const cv = document.createElement('canvas');
@@ -609,7 +765,11 @@ function chromaKeyBlack(bmp) {
 }
 
 /* ---------- Game state ---------- */
-const JUDGE = { PG: 21, GR: 60, GD: 120, BD: 200, EPOOR: 280 }; // ms windows (LR2 EASY-ish)
+// 판정 윈도 프리셋 (ms, 노트 정시각 기준 ±)
+const JUDGE_PRESETS = {
+  normal: { label: '기본',   PG: 21, GR: 60,  GD: 120, BD: 200, EPOOR: 280 },
+  easy:   { label: '이지',   PG: 42, GR: 120, GD: 200, BD: 240, EPOOR: 280 }, // 초보자용
+};
 const JUDGE_NAMES = ['PGREAT', 'GREAT', 'GOOD', 'BAD', 'POOR'];
 const JUDGE_COLORS = ['#7df9ff', '#ffd257', '#3dda6b', '#c93ec9', '#e0322e'];
 
@@ -624,6 +784,7 @@ const Game = {
   combo: 0, maxCombo: 0, ex: 0, totalNotes: 0,
   gauge: 20, gaugeUp: 1, fastSlow: { fast: 0, slow: 0 },
   lastJudge: -1, lastJudgeTime: -1, lastDelta: 0,
+  judge: JUDGE_PRESETS.normal,       // 현재 판정 윈도
   bombs: Array(8).fill(0),           // bomb effect timestamps
   finished: false, endTime: 0,
   offset: 0,                         // judge/visual offset (seconds). +면 노트를 늦게 판정
@@ -631,10 +792,31 @@ const Game = {
   bgaPtr: { base: 0, layer: 0, poor: 0 },
   bgaCur: { base: null, layer: null, poorId: null, poorUntil: 0 },
 
+  // 정확도: PGREAT 100% / GREAT 80% / GOOD 60% / BAD 40% / POOR 20% 가중 평균
+  accuracy() {
+    const c = this.counts;
+    const judged = c.PG + c.GR + c.GD + c.BD + c.PR;
+    if (!judged) return 100;
+    return (c.PG * 1.0 + c.GR * 0.8 + c.GD * 0.6 + c.BD * 0.4 + c.PR * 0.2) / judged * 100;
+  },
+
   now() { return AudioEngine.ctx.currentTime - this.startAudioTime; },
   gameTime() { return this.now() - this.offset; },
 
+  // 모든 소리와 BGA 동영상 정지 (Esc 이탈, 재시작 시)
+  stopPlayback() {
+    AudioEngine.stopAll();
+    for (const id of Object.keys(this.bgaRes)) {
+      const r = this.bgaRes[id];
+      try {
+        if (r.type === 'video') r.el.pause();
+        if (r.type === 'mpeg') { if (r.player.stop) r.player.stop(); else if (r.player.pause) r.player.pause(); }
+      } catch (e) {}
+    }
+  },
+
   start(chart, timing, compiled, autoplay) {
+    this.stopPlayback(); // 이전 플레이의 긴 BGM 등 잔여 소리 정리
     this.chart = chart; this.timing = timing;
     this.notes = compiled.notes.map(n => ({ ...n, state: 0 })); // 0 idle, 1 hit, 2 miss, 3 holding
     this.bgms = compiled.bgms;
@@ -644,7 +826,10 @@ const Game = {
     for (const id of Object.keys(this.bgaRes)) {
       const r = this.bgaRes[id];
       if (r.type === 'video') { try { r.el.pause(); r.el.currentTime = 0; } catch (e) {} }
+      if (r.type === 'mpeg')  { try { if (r.player.stop) r.player.stop(); else if (r.player.pause) r.player.pause(); } catch (e) {} }
     }
+    // #BMP00: 채널 06 이벤트가 없어도 쓰이는 기본 미스 이미지
+    if (this.bgaRes[0]) this.bgaCur.poorId = 0;
     this.autoplay = autoplay;
     this.nextBgm = 0;
     this.counts = { PG: 0, GR: 0, GD: 0, BD: 0, PR: 0 };
@@ -693,8 +878,8 @@ const Game = {
     for (const n of this.notes) {
       if (n.lane !== lane || n.state !== 0) continue;
       const d = t - n.time * 1000;
-      if (d > JUDGE.EPOOR) continue;
-      if (d < -JUDGE.EPOOR) break;
+      if (d > this.judge.EPOOR) continue;
+      if (d < -this.judge.EPOOR) break;
       const a = Math.abs(d);
       if (a < bestAbs) { bestAbs = a; best = n; }
     }
@@ -708,10 +893,10 @@ const Game = {
     AudioEngine.play(best.wav);
     const a = Math.abs(d);
     let j;
-    if (a <= JUDGE.PG) j = 0;
-    else if (a <= JUDGE.GR) j = 1;
-    else if (a <= JUDGE.GD) j = 2;
-    else if (a <= JUDGE.BD) j = 3;
+    if (a <= this.judge.PG) j = 0;
+    else if (a <= this.judge.GR) j = 1;
+    else if (a <= this.judge.GD) j = 2;
+    else if (a <= this.judge.BD) j = 3;
     else { this.addJudge(4, d); return; } // empty poor (note stays)
     if (best.ln) { best.state = 3; this.holdNote[lane] = best; }
     else best.state = 1;
@@ -724,7 +909,7 @@ const Game = {
     const n = this.holdNote[lane];
     if (!n) return;
     const t = this.gameTime() * 1000;
-    if (t < n.endTime * 1000 - JUDGE.GD) {
+    if (t < n.endTime * 1000 - this.judge.GD) {
       n.state = 2; // dropped
       this.addJudge(4, 0);
     } else {
@@ -762,6 +947,7 @@ const Game = {
         this.bgaCur.base = ev.id;
         const r = this.bgaRes[ev.id];
         if (r && r.type === 'video') { try { r.el.currentTime = 0; r.el.play(); } catch (e) {} }
+        if (r && r.type === 'mpeg')  { try { r.player.play(); } catch (e) {} }
       }
       while (this.bgaPtr.layer < this.bga.layer.length && this.bga.layer[this.bgaPtr.layer].time <= ta) {
         this.bgaCur.layer = this.bga.layer[this.bgaPtr.layer++].id;
@@ -784,7 +970,7 @@ const Game = {
         }
         if (n.state === 3 && n.endTime <= t) { n.state = 1; this.laneState[n.lane] = false; }
       } else {
-        if (n.state === 0 && tms - n.time * 1000 > JUDGE.BD) {
+        if (n.state === 0 && tms - n.time * 1000 > this.judge.BD) {
           n.state = 2;
           this.addJudge(4, 0);
         }
@@ -943,24 +1129,26 @@ const Field = {
       c.fillText(this.keyLabels[v], x + w / 2, this.judgeY + 33);
     }
 
-    // combo + judge text (center of field)
+    // combo + judge (필드 상단 여백 — 노트를 가리지 않음)
     if (Game.lastJudge >= 0 && t - Game.lastJudgeTime < 0.6) {
-      const cy = this.topY + (this.judgeY - this.topY) * 0.55;
+      const cx = this.fieldW / 2;
       c.textAlign = 'center';
       if (Game.combo > 1) {
-        c.font = 'bold 44px "Arial Black", sans-serif';
+        c.font = 'bold 28px "Arial Black", sans-serif';
         c.fillStyle = '#ffb347';
         c.strokeStyle = '#7a3c00'; c.lineWidth = 2;
-        c.strokeText(String(Game.combo), this.fieldW / 2, cy - 26);
-        c.fillText(String(Game.combo), this.fieldW / 2, cy - 26);
+        c.strokeText(String(Game.combo), cx, 32);
+        c.fillText(String(Game.combo), cx, 32);
       }
-      c.font = 'bold 20px "Arial Black", sans-serif';
+      c.font = 'bold 14px "Arial Black", sans-serif';
       c.fillStyle = JUDGE_COLORS[Game.lastJudge];
-      c.fillText(JUDGE_NAMES[Game.lastJudge], this.fieldW / 2, cy + 4);
+      c.fillText(JUDGE_NAMES[Game.lastJudge], cx, Game.combo > 1 ? 52 : 38);
       if (Game.lastJudge >= 1 && Game.lastJudge <= 2 && Game.lastDelta !== 0) {
-        c.font = 'bold 13px sans-serif';
+        c.font = 'bold 11px sans-serif';
         c.fillStyle = Game.lastDelta < 0 ? '#5db3ff' : '#ff6a6a';
-        c.fillText(Game.lastDelta < 0 ? 'FAST' : 'SLOW', this.fieldW / 2, cy + 22);
+        c.textAlign = 'right';
+        c.fillText(Game.lastDelta < 0 ? 'FAST' : 'SLOW', this.fieldW - 4, 14);
+        c.textAlign = 'center';
       }
     }
 
@@ -986,9 +1174,10 @@ const BGAView = {
   init(canvas) { this.canvas = canvas; this.ctx = canvas.getContext('2d'); },
   drawRes(r) {
     const c = this.ctx, W = this.canvas.width, H = this.canvas.height;
-    const src = r.type === 'video' ? r.el : r.img;
-    const sw = r.type === 'video' ? src.videoWidth : src.width;
-    const sh = r.type === 'video' ? src.videoHeight : src.height;
+    let src, sw, sh;
+    if (r.type === 'video')      { src = r.el;     sw = src.videoWidth; sh = src.videoHeight; }
+    else if (r.type === 'mpeg')  { src = r.canvas; sw = src.width;      sh = src.height; }
+    else                         { src = r.img;    sw = src.width;      sh = src.height; }
     if (!sw || !sh) return;
     const s = Math.min(W / sw, H / sh);
     const dw = sw * s, dh = sh * s;
@@ -1001,7 +1190,17 @@ const BGAView = {
     if (!Game.bga) return;
     const poorActive = Game.bgaCur.poorUntil > Game.now() && Game.bgaCur.poorId !== null;
     const baseId = poorActive ? Game.bgaCur.poorId : Game.bgaCur.base;
-    if (baseId !== null && Game.bgaRes[baseId]) this.drawRes(Game.bgaRes[baseId]);
+    if (baseId !== null) {
+      if (Game.bgaRes[baseId]) {
+        this.drawRes(Game.bgaRes[baseId]);
+      } else {
+        // 리소스가 없는(미지원 코덱 등) BGA — 검은 화면 대신 안내
+        c.fillStyle = '#55555c';
+        c.font = '13px monospace';
+        c.textAlign = 'center';
+        c.fillText('BGA 형식 미지원', W / 2, H / 2);
+      }
+    }
     if (!poorActive && Game.bgaCur.layer !== null && Game.bgaRes[Game.bgaCur.layer]) {
       this.drawRes(Game.bgaRes[Game.bgaCur.layer]);
     }
@@ -1029,6 +1228,10 @@ const UI = {
     });
     $('#offMinus').addEventListener('click', () => this.nudgeOffset(-5));
     $('#offPlus').addEventListener('click', () => this.nudgeOffset(5));
+    $('#hsMinus').addEventListener('click', () => { Game.hispeed = clamp(Game.hispeed - 0.25, 0.5, 10); this.updateSidePanel(); });
+    $('#hsPlus').addEventListener('click', () => { Game.hispeed = clamp(Game.hispeed + 0.25, 0.5, 10); this.updateSidePanel(); });
+    $('#judgeNormal').addEventListener('click', () => this.setJudgeMode('normal'));
+    $('#judgeEasy').addEventListener('click', () => this.setJudgeMode('easy'));
     $('#folderInput').addEventListener('change', (e) => this.onFiles(e.target.files));
     $('#fileInput').addEventListener('change', (e) => this.onFiles(e.target.files));
 
@@ -1039,20 +1242,28 @@ const UI = {
       e.preventDefault(); dz.classList.remove('over');
       const items = e.dataTransfer.items;
       if (items && items.length && items[0].webkitGetAsEntry) {
+        // 중요: DataTransferItemList는 첫 await 이후 무효화되므로
+        // webkitGetAsEntry()를 먼저 동기적으로 전부 호출해 둬야 함
+        const entries = [];
+        for (const it of items) {
+          const en = it.webkitGetAsEntry();
+          if (en) entries.push(en);
+        }
         const files = [];
         const walk = (entry) => new Promise((res) => {
-          if (entry.isFile) entry.file((f) => { files.push(f); res(); });
-          else if (entry.isDirectory) {
+          if (entry.isFile) {
+            entry.file((f) => { files.push(f); res(); }, () => res()); // 읽기 실패 시에도 진행
+          } else if (entry.isDirectory) {
             const reader = entry.createReader();
             const readAll = () => reader.readEntries(async (ents) => {
               if (!ents.length) return res();
               for (const en of ents) await walk(en);
               readAll();
-            });
+            }, () => res()); // 디렉토리 읽기 실패 시에도 진행
             readAll();
           } else res();
         });
-        for (const it of items) { const en = it.webkitGetAsEntry(); if (en) await walk(en); }
+        for (const en of entries) await walk(en);
         this.onFiles(files);
       } else {
         this.onFiles(e.dataTransfer.files);
@@ -1061,8 +1272,18 @@ const UI = {
 
     document.addEventListener('keydown', (e) => this.onKey(e, true));
     document.addEventListener('keyup', (e) => this.onKey(e, false));
+    this.updateSidePanel();
 
     requestAnimationFrame(() => this.frame());
+  },
+
+  judgeMode: 'normal',
+  setJudgeMode(mode) {
+    this.judgeMode = mode;
+    Game.judge = JUDGE_PRESETS[mode];
+    $('#judgeNormal').classList.toggle('active', mode === 'normal');
+    $('#judgeEasy').classList.toggle('active', mode === 'easy');
+    this.updateSidePanel();
   },
 
   nudgeOffset(deltaMs) {
@@ -1103,11 +1324,14 @@ const UI = {
       $('#loadStatus').textContent = '파일 읽는 중…';
       Loader.reset();
       await Loader.addFiles([...files]);
+      const warn = Loader.warnings.length
+        ? ' ⚠ 일부 파일 실패: ' + Loader.warnings.slice(0, 2).join(' / ') + (Loader.warnings.length > 2 ? ' 외 ' + (Loader.warnings.length - 2) + '개' : '')
+        : '';
       if (!Loader.charts.length) {
-        $('#loadStatus').textContent = 'BMS/BME/BML 파일을 찾지 못했습니다.';
+        $('#loadStatus').textContent = 'BMS/BME/BML 파일을 찾지 못했습니다.' + (warn || ' 폴더 압축을 풀어 폴더째 드래그해 보세요.');
         return;
       }
-      $('#loadStatus').textContent = '';
+      $('#loadStatus').textContent = warn;
       this.showChartList();
     } catch (err) {
       $('#loadStatus').textContent = '오류: ' + err.message;
@@ -1165,6 +1389,11 @@ const UI = {
       });
       Game.bgaRes = b.resources;
       bgaMsg = ' · BGA ' + b.found + '/' + b.total;
+      if (b.unsupported && b.unsupported.length) {
+        bgaMsg += ' (미지원 ' + b.unsupported.length + '개: ' + b.unsupported.slice(0, 2).join(', ') +
+                  (b.unsupported.length > 2 ? ' 외' : '') +
+                  ' — mp4로 변환해 같은 폴더에 두면 자동 인식)';
+      }
     }
 
     $('#loadStatus').textContent =
@@ -1225,6 +1454,7 @@ const UI = {
       if (e.code === 'KeyA' && !Game.playing && !this.preparing && this.ready) { this.startPlay(true); return; }
       if (e.code === 'Escape' && (Game.playing || Game.finished)) {
         Game.playing = false; Game.finished = false;
+        Game.stopPlayback();
         $('#screen-play').classList.add('hidden');
         $('#result').classList.add('hidden');
         $('#screen-select').classList.remove('hidden');
@@ -1244,7 +1474,9 @@ const UI = {
 
   updateSidePanel() {
     $('#hsVal').textContent = Game.hispeed.toFixed(2);
+    $('#hsSelVal').textContent = Game.hispeed.toFixed(2);
     $('#sOff').textContent = (Game.offset >= 0 ? '+' : '') + Math.round(Game.offset * 1000) + 'ms';
+    $('#sJudge').textContent = Game.judge.label + ' (PG ±' + Game.judge.PG + 'ms)';
     if (Game.chart) {
       $('#sTitle').textContent = Game.chart.title;
       $('#sArtist').textContent = Game.chart.artist;
@@ -1258,10 +1490,10 @@ const UI = {
       BGAView.draw();
     // side panel live values
     if (Game.playing || Game.finished) {
-      $('#sEx').textContent = Game.ex;
+      const c = Game.counts;
+      $('#sEx').textContent = Game.accuracy().toFixed(2) + '%';
       $('#sMax').textContent = Game.maxCombo;
       $('#sBpm').textContent = Game.timing ? Game.timing.bpmAt(Math.max(0, Game.now())).toFixed(0) : '-';
-      const c = Game.counts;
       $('#sPg').textContent = c.PG; $('#sGr').textContent = c.GR;
       $('#sGd').textContent = c.GD; $('#sBd').textContent = c.BD; $('#sPr').textContent = c.PR;
       $('#sFast').textContent = Game.fastSlow.fast; $('#sSlow').textContent = Game.fastSlow.slow;
@@ -1275,19 +1507,25 @@ const UI = {
   showResult() {
     const c = Game.counts;
     const maxEx = Game.totalNotes * 2;
-    const rate = maxEx ? Game.ex / maxEx : 0;
-    let grade = 'F';
-    if (rate >= 8 / 9) grade = 'AAA'; else if (rate >= 7 / 9) grade = 'AA';
-    else if (rate >= 6 / 9) grade = 'A'; else if (rate >= 5 / 9) grade = 'B';
-    else if (rate >= 4 / 9) grade = 'C'; else if (rate >= 3 / 9) grade = 'D';
-    else if (rate >= 2 / 9) grade = 'E';
+    const rate = Game.accuracy() / 100; // 정확도 (판정 기준)
+    const pct = rate * 100;
+    let grade;
+    if (pct >= 99.995) grade = 'S';       // 100% (부동소수 오차 허용)
+    else if (pct >= 95) grade = 'AA';
+    else if (pct >= 90) grade = 'A';
+    else if (pct >= 80) grade = 'B';
+    else if (pct >= 70) grade = 'C';
+    else if (pct >= 60) grade = 'D';
+    else if (pct >= 50) grade = 'E';
+    else grade = 'F';
     const cleared = Game.gauge >= 80;
     $('#rGrade').textContent = grade;
     $('#rGrade').style.color = cleared ? '#59e07a' : '#ff5a52';
     $('#rClear').textContent = Game.autoplay ? 'AUTOPLAY' : (cleared ? 'CLEAR' : 'FAILED');
     $('#rClear').style.color = cleared ? '#59e07a' : '#ff5a52';
     $('#rBody').innerHTML =
-      row('EX SCORE', Game.ex + ' / ' + maxEx + ' (' + (rate * 100).toFixed(2) + '%)') +
+      row('ACCURACY', (rate * 100).toFixed(2) + '%') +
+      row('EX SCORE', Game.ex + ' / ' + maxEx) +
       row('MAX COMBO', Game.maxCombo + ' / ' + Game.totalNotes) +
       row('PGREAT', c.PG) + row('GREAT', c.GR) + row('GOOD', c.GD) +
       row('BAD', c.BD) + row('POOR', c.PR) +
