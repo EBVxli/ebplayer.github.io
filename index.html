@@ -102,6 +102,11 @@ header span{color:var(--dim); font-size:12px; letter-spacing:1px}
 .rrow{display:flex; justify-content:space-between; font-family:monospace; font-size:14px; padding:4px 0; border-bottom:1px dotted #2c2c34}
 #result .esc{margin-top:16px; color:var(--dim); font-size:12px}
 
+.chart-item .ttl .rec{
+  font-size:11px; font-family:monospace; color:var(--amber);
+  border:1px solid #4a3a20; padding:1px 6px; border-radius:2px; margin-left:8px;
+}
+.chart-item .ttl .rec.clear{color:#59e07a; border-color:#2a4a34}
 .chart-item .ttl .mode{
   font-style:normal; font-size:10px; color:#fff; background:#33333e;
   border:1px solid #4a4a56; padding:1px 6px; border-radius:2px; letter-spacing:1px;
@@ -246,6 +251,55 @@ function decodeBuffer(buf) {
   try { return new TextDecoder('shift_jis').decode(buf); } catch (e) {}
   try { return new TextDecoder('euc-kr').decode(buf); } catch (e) {}
   return new TextDecoder('utf-8').decode(buf);
+}
+
+/* ---------- Local storage (설정·기록 저장) ---------- */
+// 호스팅 환경에서는 localStorage로 유저별(브라우저별) 저장.
+// 저장이 차단된 환경(Claude 미리보기 등)에서는 조용히 비활성화.
+const Store = {
+  ok: (() => {
+    try { localStorage.setItem('__eb_t', '1'); localStorage.removeItem('__eb_t'); return true; }
+    catch (e) { return false; }
+  })(),
+  load(key, def) {
+    if (!this.ok) return def;
+    try { const v = localStorage.getItem('ebplayer.' + key); return v ? JSON.parse(v) : def; }
+    catch (e) { return def; }
+  },
+  save(key, val) {
+    if (!this.ok) return;
+    try { localStorage.setItem('ebplayer.' + key, JSON.stringify(val)); } catch (e) {}
+  },
+  saveSettings() {
+    this.save('settings', {
+      keymap: UI.keymap, judgeMode: UI.judgeMode,
+      hispeed: Game.hispeed, offset: Game.offset,
+    });
+  },
+  loadSettings() {
+    const s = this.load('settings', null);
+    if (!s) return;
+    if (s.keymap && Object.keys(s.keymap).length) UI.keymap = s.keymap;
+    if (s.judgeMode && JUDGE_PRESETS[s.judgeMode]) { UI.judgeMode = s.judgeMode; Game.judge = JUDGE_PRESETS[s.judgeMode]; }
+    if (typeof s.hispeed === 'number') Game.hispeed = clamp(s.hispeed, 0.5, 10);
+    if (typeof s.offset === 'number') Game.offset = clamp(s.offset, -0.3, 0.3);
+  },
+  getRecord(hash) { return this.load('records', {})[hash] || null; },
+  putRecord(hash, rec) {
+    const all = this.load('records', {});
+    const old = all[hash];
+    if (!old || rec.acc > old.acc || (rec.clear && !old.clear)) {
+      all[hash] = { ...rec, acc: Math.max(rec.acc, old ? old.acc : 0), clear: rec.clear || (old && old.clear) };
+      this.save('records', all);
+    }
+  },
+};
+
+// 채보 식별용 해시 (djb2)
+function textHash(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
 }
 
 /* ---------- BMS Parser ---------- */
@@ -1215,9 +1269,14 @@ const UI = {
   LANE_NAMES: ['1', '2', '3', '4', '5', '6', '7', 'SC'],
 
   init() {
+    Store.loadSettings();
     Field.init($('#field'));
     BGAView.init($('#bga'));
     this.renderKeyConfig();
+    // 저장된 판정 모드/오프셋을 UI에 반영
+    $('#judgeNormal').classList.toggle('active', this.judgeMode === 'normal');
+    $('#judgeEasy').classList.toggle('active', this.judgeMode === 'easy');
+    $('#offsetInput').value = Math.round(Game.offset * 1000);
 
     // 오프셋 컨트롤
     const offInput = $('#offsetInput');
@@ -1344,11 +1403,15 @@ const UI = {
     for (const ch of Loader.charts) {
       const meta = parseBMS(ch.text);
       const mode = detectMode(meta);
+      const rec = Store.getRecord(textHash(ch.text));
+      const recHtml = rec
+        ? '<span class="rec' + (rec.clear ? ' clear' : '') + '">' + rec.grade + ' ' + rec.acc.toFixed(1) + '%</span>'
+        : '';
       const li = document.createElement('button');
       li.className = 'chart-item';
       li.innerHTML =
         '<span class="lv">' + (meta.playlevel ? '☆' + meta.playlevel : '—') + '</span>' +
-        '<span class="ttl"><i class="mode">' + mode.label + '</i> ' + escapeHtml(meta.title || ch.name) + ' <em>' + escapeHtml(meta.subtitle || '') + '</em></span>' +
+        '<span class="ttl"><i class="mode">' + mode.label + '</i> ' + escapeHtml(meta.title || ch.name) + ' <em>' + escapeHtml(meta.subtitle || '') + '</em>' + recHtml + '</span>' +
         '<span class="sub">' + escapeHtml(meta.genre) + ' / ' + escapeHtml(meta.artist) + ' / BPM ' + meta.bpm + '</span>';
       li.onclick = () => { li.blur(); this.prepare(ch, meta); };
       list.appendChild(li);
@@ -1365,6 +1428,7 @@ const UI = {
     AudioEngine.init();
     if (AudioEngine.ctx.state === 'suspended') await AudioEngine.ctx.resume();
     this.selectedChart = chart;
+    this.chartHash = textHash(chartFile.text);
     this.timing = buildTiming(chart);
     this.compiled = compileNotes(chart, this.timing);
     this.mode = detectMode(chart);
@@ -1438,6 +1502,7 @@ const UI = {
           if (this.keymap[k] === this.bindingLane) delete this.keymap[k];
         }
         this.keymap[e.code] = this.bindingLane;
+        Store.saveSettings();
       }
       this.bindingLane = null;
       this.renderKeyConfig();
@@ -1473,6 +1538,7 @@ const UI = {
   },
 
   updateSidePanel() {
+    Store.saveSettings();
     $('#hsVal').textContent = Game.hispeed.toFixed(2);
     $('#hsSelVal').textContent = Game.hispeed.toFixed(2);
     $('#sOff').textContent = (Game.offset >= 0 ? '+' : '') + Math.round(Game.offset * 1000) + 'ms';
@@ -1519,9 +1585,20 @@ const UI = {
     else if (pct >= 50) grade = 'E';
     else grade = 'F';
     const cleared = Game.gauge >= 80;
+    // 베스트 기록 저장 (오토플레이 제외)
+    let newBest = false;
+    if (!Game.autoplay && this.chartHash) {
+      const old = Store.getRecord(this.chartHash);
+      newBest = Store.ok && (!old || pct > old.acc);
+      Store.putRecord(this.chartHash, {
+        grade, acc: Math.round(pct * 100) / 100, clear: cleared,
+        maxCombo: Game.maxCombo, date: Date.now(),
+      });
+    }
     $('#rGrade').textContent = grade;
     $('#rGrade').style.color = cleared ? '#59e07a' : '#ff5a52';
-    $('#rClear').textContent = Game.autoplay ? 'AUTOPLAY' : (cleared ? 'CLEAR' : 'FAILED');
+    $('#rClear').textContent = Game.autoplay ? 'AUTOPLAY' : (newBest ? 'CLEAR · NEW RECORD' : (cleared ? 'CLEAR' : 'FAILED'));
+    if (!Game.autoplay && newBest && !cleared) $('#rClear').textContent = 'FAILED · NEW RECORD';
     $('#rClear').style.color = cleared ? '#59e07a' : '#ff5a52';
     $('#rBody').innerHTML =
       row('ACCURACY', (rate * 100).toFixed(2) + '%') +
